@@ -1,8 +1,7 @@
-"""File system tools for reading, writing, and editing files.
+"""File reading, writing, and editing tools.
 
-Provides the agent with the ability to interact with the local filesystem.
-Each tool operates relative to the current working directory by default,
-but also accepts absolute paths.
+Provides paginated reading, guarded writes (no overwriting), and
+multi-edit support with both exact and whitespace-normalised matching.
 """
 
 import shutil
@@ -10,6 +9,8 @@ from pathlib import Path
 
 from langchain_core.tools import ToolException, tool
 from pydantic import BaseModel, Field
+
+from relay.utils.paths import resolve
 
 
 class EditOperation(BaseModel):
@@ -24,23 +25,6 @@ class MoveOperation(BaseModel):
 
     source: str = Field(..., description="Source file path")
     destination: str = Field(..., description="Destination file path")
-
-
-# ==============================================================================
-# Path Resolution
-# ==============================================================================
-#
-# All tools resolve paths through this helper so that both relative and
-# absolute paths work consistently. Relative paths are anchored to the
-# current working directory.
-
-
-def _resolve(file_path: str) -> Path:
-    """Resolve *file_path* to an absolute ``Path``.
-
-    Relative paths are resolved against ``Path.cwd()``.
-    """
-    return Path(file_path).resolve()
 
 
 # ==============================================================================
@@ -183,7 +167,7 @@ async def read_file(file_path: str, start_line: int = 0, limit: int = 500) -> st
         start_line: 0-based starting line number (default 0).
         limit: Maximum number of lines to return (default 500).
     """
-    path = _resolve(file_path)
+    path = resolve(file_path)
     try:
         with open(path, encoding="utf-8") as f:
             all_lines = f.readlines()
@@ -203,7 +187,7 @@ async def write_file(file_path: str, content: str) -> str:
         file_path: Path to the file to create.
         content: Content to write.
     """
-    path = _resolve(file_path)
+    path = resolve(file_path)
     if path.exists():
         raise ToolException(f"File already exists: {path}. Use edit_file instead.")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,7 +203,7 @@ async def edit_file(file_path: str, edits: list[EditOperation]) -> str:
         file_path: Path to the file to edit.
         edits: A list of ``{old_content, new_content}`` replacements.
     """
-    path = _resolve(file_path)
+    path = resolve(file_path)
     if not path.exists():
         raise ToolException(f"File does not exist: {path}")
 
@@ -236,7 +220,7 @@ async def create_dir(dir_path: str) -> str:
     Args:
         dir_path: Path to the directory to create.
     """
-    path = _resolve(dir_path)
+    path = resolve(dir_path)
     path.mkdir(parents=True, exist_ok=True)
     return f"Directory created: {path}"
 
@@ -249,8 +233,8 @@ async def move_file(source_path: str, destination_path: str) -> str:
         source_path: Path to the source file.
         destination_path: Path to the destination.
     """
-    src = _resolve(source_path)
-    dst = _resolve(destination_path)
+    src = resolve(source_path)
+    dst = resolve(destination_path)
     if not src.exists():
         raise ToolException(f"Source does not exist: {src}")
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -265,18 +249,8 @@ async def delete_file(file_path: str) -> str:
     Args:
         file_path: Path to the file to delete.
     """
-    path = _resolve(file_path)
+    path = resolve(file_path)
     if not path.exists():
         raise ToolException(f"File does not exist: {path}")
     path.unlink()
     return f"File deleted: {path}"
-
-
-FILE_SYSTEM_TOOLS = [
-    read_file,
-    write_file,
-    edit_file,
-    create_dir,
-    move_file,
-    delete_file,
-]

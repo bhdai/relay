@@ -2,13 +2,9 @@
 
 from pathlib import Path
 
-from relay.tools.terminal import (
-    IGNORE_DIRS,
-    _collect_files,
-    _extract_command_parts,
-    _format_output,
-    _render_tree,
-)
+from relay.tools import IGNORE_DIRS
+from relay.tools.filesystem.ls import _collect_files, _render_tree
+from relay.tools.terminal import _extract_command_parts, _format_output
 
 
 # ==============================================================================
@@ -128,6 +124,24 @@ class TestCollectFiles:
 
         files, _ = _collect_files(tmp_path, max_files=100)
         assert files == sorted(files)
+
+    def test_extra_ignore_files(self, tmp_path: Path):
+        (tmp_path / "keep.py").write_text("")
+        (tmp_path / "skip.bak").write_text("")
+
+        files, _ = _collect_files(tmp_path, max_files=100, extra_ignore=["*.bak"])
+        assert "keep.py" in files
+        assert "skip.bak" not in files
+
+    def test_extra_ignore_dirs(self, tmp_path: Path):
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_a.py").write_text("")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("")
+
+        files, _ = _collect_files(tmp_path, max_files=100, extra_ignore=["tests/"])
+        assert "src/main.py" in files
+        assert not any("tests" in f for f in files)
 
 
 # ==============================================================================
