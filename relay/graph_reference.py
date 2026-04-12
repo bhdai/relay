@@ -2,7 +2,7 @@
 
 This file is a **learning reference** that shows how to build the same
 agent from ``relay.graph`` using the low-level LangGraph ``StateGraph``
-API instead of the ``create_react_agent`` prebuilt helper.
+API instead of the ``langchain.agents.create_agent`` helper.
 
 It is *not* imported by the application — its only purpose is to make
 the graph construction visible and inspectable.
@@ -17,37 +17,31 @@ Usage::
 """
 
 import json
-from typing import Annotated
 
 from langchain_core.messages import (
     AIMessage,
-    BaseMessage,
-    HumanMessage,
     ToolMessage,
 )
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
-from typing_extensions import TypedDict
 
+from relay.agents.state import AgentState
 from relay.settings import get_settings
 from relay.tools.filesystem import FILE_SYSTEM_TOOLS
+from relay.tools.memory import MEMORY_TOOLS
 from relay.tools.terminal import TERMINAL_TOOLS
+from relay.tools.todo import TODO_TOOLS
 from relay.tools.web import WEB_TOOLS
 
 # ==============================================================================
 # 1. Define the Agent State
 # ==============================================================================
 #
-# The state is the data structure that flows along the graph edges. In a
-# ReAct agent the only thing we need to track is the conversation message
-# list.  ``add_messages`` is a LangGraph *reducer* that appends new
-# messages rather than overwriting them.
-
-
-class AgentState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+# The production code uses ``relay.agents.state.AgentState`` which extends
+# ``langchain.agents.AgentState`` with custom reducers for files, todos,
+# and cost tracking.  Here we re-use exactly that same schema so this
+# reference graph stays functionally equivalent.
 
 
 # ==============================================================================
@@ -57,7 +51,7 @@ class AgentState(TypedDict):
 # We aggregate every tool the agent can call and build a lookup dict so
 # the tool-execution node can dispatch by name.
 
-ALL_TOOLS = [*FILE_SYSTEM_TOOLS, *TERMINAL_TOOLS, *WEB_TOOLS]
+ALL_TOOLS = [*FILE_SYSTEM_TOOLS, *TERMINAL_TOOLS, *WEB_TOOLS, *MEMORY_TOOLS, *TODO_TOOLS]
 TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 
 

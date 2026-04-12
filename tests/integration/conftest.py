@@ -1,8 +1,8 @@
 import pytest
+from langchain.agents import AgentState
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
-from langgraph.prebuilt.chat_agent_executor import AgentState
 
 
 def pytest_collection_modifyitems(config, items):
@@ -14,10 +14,14 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def create_test_graph():
-    """Factory fixture: builds a minimal START → tools → END graph."""
+    """Factory fixture: builds a minimal START → tools → END graph.
 
-    def _create(tools: list):
-        graph = StateGraph(AgentState)
+    Accepts an optional ``state_schema`` to use a custom state class
+    (e.g. the extended ``relay.state.AgentState``).
+    """
+
+    def _create(tools: list, state_schema=AgentState):
+        graph = StateGraph(state_schema)
         tool_node = ToolNode(tools, handle_tool_errors=True)
         graph.add_node("tools", tool_node)
         graph.set_entry_point("tools")
