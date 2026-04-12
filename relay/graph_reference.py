@@ -7,6 +7,18 @@ API instead of the ``langchain.agents.create_agent`` helper.
 It is *not* imported by the application — its only purpose is to make
 the graph construction visible and inspectable.
 
+The production graph in ``relay.graph`` uses the ``middleware=`` parameter
+of ``create_agent`` to hook into the lifecycle.  Here we inline the
+equivalent logic to show what the middleware hooks actually *do* at the
+graph level:
+
+- **TokenCostMiddleware** → post-processing after the LLM call inside
+  the ``agent`` node.
+- **PendingToolResultMiddleware** → pre-processing at the start of
+  the ``agent`` node (before the LLM call).
+- **ReturnDirectMiddleware** → routing logic that can short-circuit the
+  loop to ``END`` before calling the model again.
+
 Usage::
 
     from dotenv import load_dotenv; load_dotenv()
@@ -17,14 +29,17 @@ Usage::
 """
 
 import json
+import logging
 
 from langchain_core.messages import (
     AIMessage,
+    RemoveMessage,
     ToolMessage,
 )
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from relay.agents.state import AgentState
 from relay.settings import get_settings
@@ -33,6 +48,7 @@ from relay.tools.memory import MEMORY_TOOLS
 from relay.tools.terminal import TERMINAL_TOOLS
 from relay.tools.todo import TODO_TOOLS
 from relay.tools.web import WEB_TOOLS
+from relay.utils.messages import create_tool_message
 
 # ==============================================================================
 # 1. Define the Agent State
@@ -64,20 +80,165 @@ TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 #   agent  →  calls the LLM with the current messages
 #   tools  →  executes whatever tool calls the LLM requested
 #
-# The ``agent`` node's output may contain ``tool_calls``.  If it does, the
-# conditional edge routes to ``tools``; otherwise the loop ends.
+# The production code uses middleware hooks to add cross-cutting concerns.
+# Here we inline the same logic so you can see exactly where each hook
+# fires within the graph.
+
+logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------------------
+# Inline middleware: PendingToolResultMiddleware (abefore_agent)
+# ------------------------------------------------------------------------------
+#
+# When the graph resumes after an interrupt, tool calls from the last
+# AIMessage may be missing their ToolMessage results or have them in the
+# wrong position.  This function repairs the message list before the LLM
+# sees it.
+
+
+def _repair_pending_tool_results(state: AgentState) -> dict | None:
+    """Inject error ToolMessages for tool calls that never returned."""
+    messages = state.get("messages", [])
+    if not messages:
+        return None
+
+    last_ai_index = None
+    for idx in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[idx], AIMessage):
+            last_ai_index = idx
+            break
+
+    if last_ai_index is None:
+        return None
+
+    last_ai = messages[last_ai_index]
+    tool_calls = getattr(last_ai, "tool_calls", None) or []
+    if not tool_calls:
+        return None
+
+    expected_ids = {c.get("id") for c in tool_calls if c.get("id")}
+    if not expected_ids:
+        return None
+
+    existing: dict[str, tuple[int, ToolMessage]] = {}
+    for idx in range(last_ai_index + 1, len(messages)):
+        msg = messages[idx]
+        if isinstance(msg, ToolMessage) and msg.tool_call_id in expected_ids:
+            existing[msg.tool_call_id] = (idx, msg)
+
+    missing_ids = expected_ids - existing.keys()
+    injected = {
+        c["id"]: create_tool_message(
+            result="Interrupted.",
+            tool_name=c.get("name") or "unknown_tool",
+            tool_call_id=c["id"],
+            is_error=True,
+        )
+        for c in tool_calls
+        if c.get("id") in missing_ids
+    }
+
+    if not injected and not existing:
+        return None
+
+    needs_repair = any(
+        any(
+            not isinstance(messages[ci], (AIMessage, ToolMessage))
+            for ci in range(last_ai_index + 1, idx)
+        )
+        for idx, _ in existing.values()
+    )
+
+    if not injected and not needs_repair:
+        return None
+
+    repaired = list(messages[: last_ai_index + 1])
+    for c in tool_calls:
+        cid = c.get("id")
+        if cid in existing:
+            repaired.append(existing[cid][1])
+        elif cid in injected:
+            repaired.append(injected[cid])
+
+    existing_indices = {idx for idx, _ in existing.values()}
+    repaired.extend(
+        messages[idx]
+        for idx in range(last_ai_index + 1, len(messages))
+        if idx not in existing_indices
+    )
+
+    logger.debug(
+        "Repaired tool results: %d moved, %d interrupted",
+        len(existing),
+        len(injected),
+    )
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *repaired]}
+
+
+# ------------------------------------------------------------------------------
+# Inline middleware: TokenCostMiddleware (aafter_model)
+# ------------------------------------------------------------------------------
+
+
+def _extract_token_cost(response: AIMessage) -> dict:
+    """Extract token usage and compute cost from the model response."""
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        return {}
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    return {
+        "current_input_tokens": input_tokens,
+        "current_output_tokens": output_tokens,
+        # Cost rates come from AgentContext at runtime; here we use 0.0
+        # since the low-level graph has no context wiring yet.
+        "total_cost": 0.0,
+    }
 
 
 def _build_agent_node(llm):
-    """Return a node function that invokes the LLM with bound tools."""
+    """Return a node function that invokes the LLM with bound tools.
+
+    This node inlines the middleware hooks:
+    - **abefore_agent**: ``_repair_pending_tool_results`` fixes the
+      message list before the LLM call.
+    - **aafter_model**: ``_extract_token_cost`` records token usage
+      after the LLM responds.
+    """
 
     # Bind the tool schemas so the LLM knows what it can call.
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     async def agent_node(state: AgentState) -> dict:
         """Call the LLM and return the response message."""
-        response = await llm_with_tools.ainvoke(state["messages"])
-        return {"messages": [response]}
+
+        # --- abefore_agent: PendingToolResultMiddleware ---
+        #
+        # In the production graph this runs as a middleware hook before
+        # the agent node.  Here we call it inline and merge any repair
+        # into the state before invoking the LLM.
+        repair = _repair_pending_tool_results(state)
+        messages = state["messages"]
+        if repair is not None:
+            # The repair replaces the entire message list (via
+            # RemoveMessage + re-add).  For the LLM call we use the
+            # repaired list directly (skip the RemoveMessage sentinel).
+            messages = [m for m in repair["messages"] if not isinstance(m, RemoveMessage)]
+
+        response = await llm_with_tools.ainvoke(messages)
+
+        # --- aafter_model: TokenCostMiddleware ---
+        cost_update = _extract_token_cost(response)
+
+        update: dict = {"messages": [response]}
+        if repair is not None:
+            # Propagate the full repair (including RemoveMessage) so
+            # LangGraph actually replaces the stored messages.
+            update["messages"] = repair["messages"] + [response]
+        update.update(cost_update)
+
+        return update
 
     return agent_node
 
@@ -119,6 +280,10 @@ async def tool_node(state: AgentState) -> dict:
 # After every ``agent`` step we inspect the last message.  If the LLM
 # requested tool calls we route to ``tools``; otherwise the conversation
 # turn is complete and we go to ``END``.
+#
+# After every ``tools`` step we check whether any of the tool results
+# have ``return_direct=True`` — if so we skip the next model call and
+# go straight to ``END`` (inlined ReturnDirectMiddleware).
 
 
 def should_continue(state: AgentState) -> str:
@@ -127,6 +292,22 @@ def should_continue(state: AgentState) -> str:
     if isinstance(last, AIMessage) and last.tool_calls:
         return "tools"
     return "end"
+
+
+def _should_return_direct(state: AgentState) -> str:
+    """Check recent ToolMessages for ``return_direct=True``.
+
+    This is the inline equivalent of ``ReturnDirectMiddleware.abefore_model``
+    — it scans backwards through the recent ToolMessages and short-circuits
+    the loop to ``END`` if any has ``return_direct=True``.
+    """
+    for msg in reversed(state.get("messages", [])):
+        if isinstance(msg, ToolMessage):
+            if getattr(msg, "return_direct", False):
+                return "end"
+        elif not isinstance(msg, ToolMessage):
+            break
+    return "agent"
 
 
 # ==============================================================================
@@ -168,9 +349,17 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
         },
     )
 
-    # After tools run, always loop back to the agent so it can inspect
-    # the results and decide what to do next.
-    graph.add_edge("tools", "agent")
+    # After tools run, check whether any result has return_direct=True.
+    # If so, skip the next LLM call and go straight to END.
+    # Otherwise loop back to the agent for the next model call.
+    graph.add_conditional_edges(
+        "tools",
+        _should_return_direct,
+        {
+            "agent": "agent",
+            "end": END,
+        },
+    )
 
     # --- Compile -----------------------------------------------------------------
     #
