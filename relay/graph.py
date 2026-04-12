@@ -50,17 +50,30 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
         ReturnDirectMiddleware(),  # Short-circuit when return_direct=True
     ]
 
-    middlewares: list[AgentMiddleware] = after_model + before_agent + before_model
+    middlewares: list[AgentMiddleware] = (
+        prompt_mw + after_model + before_agent + before_model
+    )
+
+    # -----------------------------------------------------------------------
+    # Enable error-as-message for all tools that raise ToolException.
+    # Without this, ToolException propagates up and crashes the graph;
+    # with it, LangGraph converts the exception into an error ToolMessage
+    # so the agent can self-correct.
+    # -----------------------------------------------------------------------
+
+    tools = [
+        *FILE_SYSTEM_TOOLS,
+        *TERMINAL_TOOLS,
+        *WEB_TOOLS,
+        *MEMORY_TOOLS,
+        *TODO_TOOLS,
+    ]
+    for t in tools:
+        t.handle_tool_error = True
 
     return create_agent(
         llm,
-        tools=[
-            *FILE_SYSTEM_TOOLS,
-            *TERMINAL_TOOLS,
-            *WEB_TOOLS,
-            *MEMORY_TOOLS,
-            *TODO_TOOLS,
-        ],
+        tools=tools,
         state_schema=AgentState,
         context_schema=AgentContext,
         checkpointer=checkpointer,
