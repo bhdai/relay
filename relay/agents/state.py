@@ -57,7 +57,10 @@ class Todo(TypedDict):
 class AgentState(BaseAgentState):
     """Extended agent state with memory files, todos, and cost tracking."""
 
-    todos: Annotated[list[Todo] | None, lambda l, r: (l or []) + (r or [])]
+    # Replace-on-write: the agent always sends the complete todo snapshot, so
+    # the latest write wins.  An append reducer would accumulate duplicates on
+    # every call to write_todos.
+    todos: Annotated[list[Todo] | None, lambda l, r: r if r is not None else l]
     files: Annotated[dict[str, str] | None, file_reducer]
     current_input_tokens: Annotated[int | None, replace_reducer]
     current_output_tokens: Annotated[int | None, replace_reducer]

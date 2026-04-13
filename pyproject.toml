@@ -8,7 +8,11 @@ dependencies = [
     "langchain>=1.2.0",
     "langchain-openai>=1.1.12",
     "langgraph>=1.1.6",
+    "langgraph-checkpoint-sqlite>=3.0.3",
+    "prompt-toolkit>=3.0.52",
     "pydantic-settings>=2.13.1",
+    "python-dotenv>=1.2.2",
+    "rich>=15.0.0",
     "trafilatura>=2.0.0",
 ]
 
