@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LLM__")
 
+    model: str = "gpt-4.1-mini"
     openai_api_key: SecretStr
 
 
