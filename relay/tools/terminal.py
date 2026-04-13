@@ -60,6 +60,17 @@ def _format_output(stdout: str, stderr: str) -> str:
 async def run_command(command: str) -> str:
     """Execute a shell command and return its output.
 
+    Use for tasks the filesystem tools cannot perform: running build
+    systems, package managers (uv, npm, cargo), test runners, git, etc.
+    For reading, searching, or editing files, prefer the dedicated
+    filesystem tools (``read_file``, ``glob_files``, ``grep_files``,
+    ``edit_file``) — they are safer, auto-ignore noisy directories, and
+    produce cleaner output.
+
+    Commands run in the working directory shown in ``<env>``.
+    Non-zero exit codes raise a ``ToolException`` with the stderr output.
+    Interactive programs that prompt for input will hang; avoid them.
+
     Args:
         command: The shell command to execute.
     """

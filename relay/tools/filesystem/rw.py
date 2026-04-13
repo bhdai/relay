@@ -162,6 +162,19 @@ def _apply_edits(content: str, edits: list[EditOperation]) -> str:
 async def read_file(file_path: str, start_line: int = 0, limit: int = 500) -> str:
     """Read a file with line-based pagination.
 
+    Lines are returned prefixed with their line number:
+    ``   0 - first line``, ``   1 - second line``, etc.  Use these
+    numbers when writing ``edit_file`` operations.
+
+    For large files (> 500 lines), read in chunks by incrementing
+    *start_line*.  Avoid tiny 30-line slices — prefer reading a
+    larger window to reduce round-trips.  Call this tool in parallel
+    when you need to read multiple files at once.  Lines longer than
+    2000 characters are truncated, so use ``grep_files`` to locate
+    specific content inside large files first.
+
+    Prefer this over ``run_command("cat …")``.
+
     Args:
         file_path: Path to the file to read.
         start_line: 0-based starting line number (default 0).
@@ -183,6 +196,11 @@ async def write_file(file_path: str, content: str) -> str:
     Use this only for files that **do not yet exist**; use ``edit_file``
     to modify existing files.
 
+    Important:
+    - ALWAYS prefer editing existing files over creating new ones.
+    - Do NOT proactively create documentation files (e.g. README.md)
+      unless the user explicitly asks for them.
+
     Args:
         file_path: Path to the file to create.
         content: Content to write.
@@ -198,6 +216,22 @@ async def write_file(file_path: str, content: str) -> str:
 @tool
 async def edit_file(file_path: str, edits: list[EditOperation]) -> str:
     """Edit an existing file by applying one or more find-and-replace operations.
+
+    Always call ``read_file`` at least once before editing so you know
+    the exact content to match.  Use the line numbers from ``read_file``
+    output as reference when constructing edits.
+
+    Each edit matches ``old_content`` exactly (with whitespace
+    normalisation as a fallback).  An edit fails if ``old_content``
+    cannot be found, or if two edits target overlapping regions.
+    Include several lines of surrounding context in ``old_content`` to
+    make each match unique; a unique match is required.
+
+    Edits are applied in a single pass in reverse order, so positional
+    offsets stay stable.  You may batch multiple independent edits in
+    one call.
+
+    ALWAYS prefer editing existing files over creating new ones.
 
     Args:
         file_path: Path to the file to edit.

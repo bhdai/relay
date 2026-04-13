@@ -20,7 +20,12 @@ from relay.agents.state import AgentState
 
 @tool
 def list_memory_files(state: Annotated[dict, InjectedState]) -> str:
-    """List all files in the agent's in-memory scratchpad."""
+    """List all files in the agent's in-memory scratchpad.
+
+    Call this to orient yourself before any other memory-file operation.
+    Use the scratchpad to persist plans, intermediate results, and notes
+    that need to survive across many tool calls in the same session.
+    """
     files = state.get("files") or {}
     if not files:
         return "(empty)"
@@ -51,8 +56,13 @@ def write_memory_file(
 ) -> Command:
     """Create or overwrite an in-memory scratchpad file.
 
+    Use for storing plans, checklists, intermediate results, or any
+    context you want to re-read later in the same session.  Prefer
+    ``edit_memory_file`` when updating an existing file to avoid
+    accidentally discarding content.
+
     Args:
-        filename: Key for the file.
+        filename: Key for the file (e.g. ``"plan.md"``, ``"notes.txt"``).
         content: Full text to store.
     """
     return Command(

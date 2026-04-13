@@ -31,12 +31,23 @@ async def glob_files(
 ) -> str:
     """Find files whose relative path matches a glob pattern.
 
+    Use this instead of ``ls`` when you need to filter by file type or
+    naming pattern — faster and more precise than scanning the whole
+    tree.  Prefer this over ``run_command("find …")``  for file-name
+    searches; reserve ``grep_files`` for content searches.
+
     Automatically ignores common noisy directories (e.g. ``.venv``,
     ``node_modules``, ``__pycache__``).
 
+    Typical patterns::
+
+        "*.py"          – all Python files in dir_path
+        "**/*.ts"       – all TypeScript files at any depth
+        "tests/**/test_*.py"  – test modules under tests/
+        "src/**/index.*"      – entry-point files under src/
+
     Args:
-        pattern: Glob pattern to match against relative file paths
-                 (e.g. ``"*.py"``, ``"src/**/*.ts"``).
+        pattern: Glob pattern to match against relative file paths.
         dir_path: Root directory to search (default: current directory).
         max_results: Maximum number of matches to return (default 100).
     """

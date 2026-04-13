@@ -59,13 +59,22 @@ async def grep_files(
 ) -> str:
     """Search file contents for a text pattern or regex.
 
+    Use this to locate functions, classes, variable names, imports, TODO
+    comments, or any text inside files.  Prefer this over
+    ``run_command("grep …")`` — it is faster, handles encoding safely,
+    and skips noisy directories automatically.
+
+    Returns matches as ``path:line_number: content`` lines.
+
     Automatically ignores common noisy directories (e.g. ``.venv``,
     ``node_modules``, ``__pycache__``).  Binary files are skipped.
 
     Args:
         pattern: The literal string or regex to search for.
         dir_path: Root directory to search (default: current directory).
-        is_regex: Whether *pattern* should be treated as a regex (default False).
+        is_regex: Whether *pattern* should be treated as a regex
+                  (default False).  Use ``True`` for patterns like
+                  ``"def \\w+\\("`` (function definitions).
         max_results: Maximum number of matching lines to return (default 100).
     """
     root = resolve(dir_path)
