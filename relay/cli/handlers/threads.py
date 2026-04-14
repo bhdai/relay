@@ -3,6 +3,10 @@
 Keeps an in-memory registry of thread IDs seen in this session and
 provides the ``/resume`` workflow: list threads, select one, detect
 pending interrupts.
+
+When a :class:`relay.checkpointer.base.BaseCheckpointer` is available,
+thread discovery also queries persisted threads so that conversations
+survive across CLI restarts.
 """
 
 from __future__ import annotations
@@ -16,11 +20,19 @@ from prompt_toolkit import PromptSession
 from relay.cli.ui.renderer import console, render_error, render_info
 
 if TYPE_CHECKING:
-    pass
+    from relay.checkpointer.base import BaseCheckpointer as RelayCheckpointer
 
 
 class ThreadManager:
-    """Tracks threads seen in this session and handles /resume."""
+    """Tracks threads seen in this session and handles /resume.
+
+    Thread IDs come from two sources:
+
+    1. ``record()`` — called during the session whenever a new message
+       is sent.
+    2. ``load_persisted_threads()`` — queries the checkpointer for
+       threads created in previous sessions.
+    """
 
     def __init__(self) -> None:
         # Maps thread_id → first human message preview.
@@ -36,6 +48,34 @@ class ThreadManager:
             self._threads[thread_id] = preview
         elif thread_id not in self._threads:
             self._threads[thread_id] = "(no messages)"
+
+    # ------------------------------------------------------------------
+    # Checkpointer-backed discovery
+    # ------------------------------------------------------------------
+
+    async def load_persisted_threads(
+        self, checkpointer: BaseCheckpointSaver
+    ) -> None:
+        """Merge threads stored in the checkpointer into the local map.
+
+        Only adds threads that are not already tracked.  Uses the
+        extended ``get_threads()`` method when the checkpointer is a
+        :class:`relay.checkpointer.base.BaseCheckpointer`.
+        """
+        # Import here to avoid circular imports.
+        from relay.checkpointer.base import BaseCheckpointer as _Base
+
+        if not isinstance(checkpointer, _Base):
+            return
+
+        try:
+            persisted = await checkpointer.get_threads()
+        except NotImplementedError:
+            return
+
+        for tid in persisted:
+            if tid not in self._threads:
+                self._threads[tid] = "(persisted)"
 
     # ------------------------------------------------------------------
     # Resume UI
@@ -98,4 +138,5 @@ class ThreadManager:
                     interrupts.extend(value)
                 else:
                     interrupts.append(value)
+        return interrupts
         return interrupts
