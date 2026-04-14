@@ -1,24 +1,24 @@
 """Filesystem tools package.
 
-Re-exports all public names so that ``from relay.tools.filesystem import …``
-continues to work after the module-to-package conversion.
+Re-exports all public names so that ``from relay.tools.impl.filesystem import …``
+works after the move to the impl sub-package.
 """
 
 from relay.tools import walk_files
-from relay.tools.filesystem.glob import (
+from relay.tools.impl.filesystem.glob import (
     _glob_match,
     glob_files,
 )
-from relay.tools.filesystem.grep import (
+from relay.tools.impl.filesystem.grep import (
     _grep_match,
     grep_files,
 )
-from relay.tools.filesystem.ls import (
+from relay.tools.impl.filesystem.ls import (
     _collect_files,
     _render_tree,
     ls,
 )
-from relay.tools.filesystem.rw import (
+from relay.tools.impl.filesystem.rw import (
     EditOperation,
     MoveOperation,
     _apply_edits,

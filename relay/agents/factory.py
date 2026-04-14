@@ -20,13 +20,13 @@ from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
 from relay.settings import get_settings
-from relay.tools.filesystem import FILE_SYSTEM_TOOLS, glob_files, grep_files, ls, read_file
-from relay.tools.memory import MEMORY_TOOLS
+from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS, glob_files, grep_files, ls, read_file
+from relay.tools.internal.memory import MEMORY_TOOLS
 from relay.tools.planning import PLANNING_TOOLS
 from relay.tools.subagents import SubAgentConfig
-from relay.tools.terminal import TERMINAL_TOOLS
-from relay.tools.todo import TODO_TOOLS
-from relay.tools.web import WEB_TOOLS
+from relay.tools.impl.terminal import TERMINAL_TOOLS
+from relay.tools.internal.todo import TODO_TOOLS
+from relay.tools.impl.web import WEB_TOOLS
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel

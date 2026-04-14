@@ -43,11 +43,11 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from relay.agents.state import AgentState
 from relay.settings import get_settings
-from relay.tools.filesystem import FILE_SYSTEM_TOOLS
-from relay.tools.memory import MEMORY_TOOLS
-from relay.tools.terminal import TERMINAL_TOOLS
-from relay.tools.todo import TODO_TOOLS
-from relay.tools.web import WEB_TOOLS
+from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS
+from relay.tools.internal.memory import MEMORY_TOOLS
+from relay.tools.impl.terminal import TERMINAL_TOOLS
+from relay.tools.internal.todo import TODO_TOOLS
+from relay.tools.impl.web import WEB_TOOLS
 from relay.utils.messages import create_tool_message
 
 # ==============================================================================

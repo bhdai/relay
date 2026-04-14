@@ -4,7 +4,7 @@ import pytest
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
-from relay.tools.memory import (
+from relay.tools.internal.memory import (
     edit_memory_file,
     list_memory_files,
     read_memory_file,
