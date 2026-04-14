@@ -12,4 +12,6 @@ wheels/
 .env
 
 docs/reference
+docs/report
 .relay/
+.langgraph_api/

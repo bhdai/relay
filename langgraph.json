@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "relay": "./relay/graph.py:build_graph"
+  },
+  "env": ".env"
+}
