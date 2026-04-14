@@ -43,3 +43,16 @@
   against this, but the list-of-blocks case silently drops non-text content
   instead of extracting text parts from the list. A proper fix would iterate
   the list and extract `{"type": "text", "text": "..."}` blocks.
+- `relay/cli/session.py` and `relay/cli/streaming.py` are dead files from
+  before the CLI restructuring into `core/`, `dispatchers/`, `handlers/`.
+  They can be deleted once we confirm nothing else references them.
+- `prompt_for_interrupt` still lives in `core/streaming.py` as a free function
+  used by the interrupt/resume loop inside `stream_response`. The new
+  `InterruptHandler` class duplicates the same logic. Eventually
+  `stream_response` should delegate to `InterruptHandler` to remove the
+  duplication.
+- The `task` subagent tool hits `GraphRecursionError` (recursion limit of 100)
+  when invoked by the `explorer` subagent. The error propagates as a
+  `ToolException` and crashes the REPL. The subagent graph needs a higher
+  recursion limit or the `task` tool should catch `GraphRecursionError`
+  and return a graceful failure message.

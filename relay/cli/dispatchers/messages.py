@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from relay.cli.core.streaming import prompt_for_interrupt, stream_response
+from relay.cli.core.streaming import stream_response
+from relay.cli.handlers.interrupts import InterruptHandler
 from relay.cli.ui.renderer import render_cost_summary, render_info
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ class MessageDispatcher:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.interrupt_handler = InterruptHandler()
         self._stream_task: asyncio.Task | None = None
         self._original_sigint = signal.getsignal(signal.SIGINT)
 
@@ -51,7 +53,7 @@ class MessageDispatcher:
 
         Does nothing if the user cancels the prompt.
         """
-        resume_value = await prompt_for_interrupt(interrupts)
+        resume_value = await self.interrupt_handler.handle(interrupts)
         if resume_value is not None:
             await self._run_stream(Command(resume=resume_value))
 

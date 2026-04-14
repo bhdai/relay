@@ -1,62 +1,81 @@
-"""Slash command definitions and dispatch."""
+"""Slash-command dispatcher — routes ``/`` commands to handlers.
+
+``CommandDispatcher`` is a class-based async dispatcher that mirrors
+langrepl's ``CommandDispatcher``.  Every command is async so that
+commands like ``/resume`` can do I/O without special-casing in the
+session loop.
+
+Langrepl equivalent:
+    ``langrepl.cli.dispatchers.commands.CommandDispatcher``
+"""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from relay.cli.handlers.resume import ResumeHandler
 from relay.cli.ui.renderer import console, render_cost_summary, render_error, render_info
 
-
-# ==============================================================================
-# Command Registry
-# ==============================================================================
-
-COMMANDS = {
-    "/help": "Show available commands",
-    "/new": "Start a new conversation thread",
-    "/resume": "Resume a previous thread",
-    "/cost": "Show cumulative token cost",
-    "/exit": "Exit the REPL (also: exit, quit, stop)",
-}
+if TYPE_CHECKING:
+    from relay.cli.core.session import Session
 
 
-# ==============================================================================
-# Dispatch
-# ==============================================================================
+class CommandDispatcher:
+    """Dispatch slash commands to the appropriate handler."""
 
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.resume_handler = ResumeHandler(session)
 
-def dispatch_command(command: str, session: "Session") -> bool:  # noqa: F821
-    """Handle a slash command.  Returns True if the REPL should exit.
+        # Registry of command name → (async handler, description).
+        self.commands: dict[str, str] = {
+            "/help": "Show available commands",
+            "/new": "Start a new conversation thread",
+            "/resume": "Resume a previous thread",
+            "/cost": "Show cumulative token cost",
+            "/exit": "Exit the REPL (also: exit, quit, stop)",
+        }
 
-    ``/resume`` is intentionally *not* handled here because it requires
-    async I/O — the session's main loop intercepts it before calling
-    this function.
-    """
-    cmd = command.strip().lower()
+    async def dispatch(self, command: str, **kwargs) -> bool:
+        """Route a slash command.  Returns True if the REPL should exit.
 
-    if cmd == "/help":
-        for name, desc in COMMANDS.items():
-            console.print(f"  {name:<10} {desc}", style="dim")
+        Parameters
+        ----------
+        command:
+            The full command string (e.g. ``"/resume"``).
+        **kwargs:
+            Extra context forwarded to individual handlers (e.g.
+            ``prompt_session`` for ``/resume``).
+        """
+        cmd = command.strip().lower()
+
+        if cmd == "/help":
+            for name, desc in self.commands.items():
+                console.print(f"  {name:<10} {desc}", style="dim")
+            return False
+
+        if cmd == "/new":
+            self.session.threads.record(self.session.context.thread_id)
+            self.session.context.new_thread()
+            render_info("New thread started.")
+            return False
+
+        if cmd == "/resume":
+            prompt_session = kwargs.get("prompt_session")
+            assert prompt_session is not None, "/resume requires a prompt_session"
+            await self.resume_handler.handle(prompt_session)
+            return False
+
+        if cmd == "/cost":
+            render_cost_summary(
+                self.session.context.total_input_tokens,
+                self.session.context.total_output_tokens,
+                self.session.context.total_cost,
+            )
+            return False
+
+        if cmd == "/exit":
+            return True
+
+        render_error(f"Unknown command: {cmd}. Type /help for options.")
         return False
-
-    if cmd == "/new":
-        session.threads.record(session.context.thread_id)
-        session.context.new_thread()
-        render_info("New thread started.")
-        return False
-
-    if cmd == "/resume":
-        # Handled async in _main_loop; this is a sync fallback.
-        return False
-
-    if cmd == "/cost":
-        render_cost_summary(
-            session.context.total_input_tokens,
-            session.context.total_output_tokens,
-            session.context.total_cost,
-        )
-        return False
-
-    if cmd == "/exit":
-        return True
-
-    render_error(f"Unknown command: {cmd}. Type /help for options.")
-    return False
