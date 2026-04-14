@@ -30,8 +30,13 @@ if TYPE_CHECKING:
 # ==============================================================================
 
 
-class SubAgentConfig(BaseModel):
-    """Runtime configuration for a delegated subagent."""
+class SubAgentRuntime(BaseModel):
+    """Runtime configuration for a delegated subagent.
+
+    This is the *resolved* runtime object with actual tool instances and
+    prompt text.  The declarative counterpart lives in
+    ``relay.configs.agent.SubAgentConfig``.
+    """
 
     name: str
     description: str
@@ -108,7 +113,7 @@ def _render_message_content(message: AnyMessage | None) -> str:
 
 
 def create_task_tool(
-    subagent_configs: list[SubAgentConfig],
+    subagent_configs: list[SubAgentRuntime],
     llm: BaseChatModel,
 ):
     """Create a ``task`` tool that delegates work to named subagents.

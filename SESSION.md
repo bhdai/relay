@@ -20,3 +20,6 @@
   workflow logic.
 - Assistant streaming still writes directly from `relay/cli/streaming.py`
   instead of routing all output through a single renderer layer.
+- `relay/tools/planning.py` (coordinator-safe `think` tool) is now dead code —
+  the coordinator no longer uses `think` (matching langrepl's architecture).
+  The file and its test (`tests/tools/test_planning.py`) can be removed.

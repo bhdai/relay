@@ -49,10 +49,11 @@ class TestAgentFactory:
         assert "grep_files" in tool_names
         assert "ls" in tool_names
 
-        # Should NOT include mutating tools.
+        # Should NOT include mutating tools or think.
         assert "write_file" not in tool_names
         assert "edit_file" not in tool_names
         assert "run_command" not in tool_names
+        assert "think" not in tool_names
 
     def test_subagent_configs_include_explorer_and_worker(self):
         """Factory defines explorer and general-purpose subagents."""
