@@ -15,6 +15,7 @@ The factory supports two modes:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from langchain_openai import ChatOpenAI
@@ -24,12 +25,14 @@ from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
 from relay.settings import get_settings
+from relay.tools.factory import ToolFactory
 from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS, glob_files, grep_files, ls, read_file
 from relay.tools.internal.memory import MEMORY_TOOLS
 from relay.tools.subagents import SubAgentRuntime
 from relay.tools.impl.terminal import TERMINAL_TOOLS
 from relay.tools.internal.todo import TODO_TOOLS
 from relay.tools.impl.web import WEB_TOOLS
+from relay.utils.patterns import matches_patterns, two_part_matcher
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -40,6 +43,8 @@ if TYPE_CHECKING:
     from relay.configs.agent import AgentConfig as DeclAgentConfig
     from relay.configs.agent import SubAgentConfig as DeclSubAgentConfig
     from relay.configs.registry import ConfigRegistry
+
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -64,57 +69,11 @@ def _prepare_tools(tools: list) -> list:
 
 
 # ==============================================================================
-# Tool Pattern Resolution (simplified)
+# Tool reference categories
 # ==============================================================================
-#
-# Full pattern matching with wildcards and negation will arrive in Phase 5
-# with the tool factory.  For now we map well-known pattern prefixes to
-# the hardcoded tool lists.
 
-_TOOL_GROUPS: dict[str, list] = {
-    "impl:web": WEB_TOOLS,
-    "impl:file_system:read_file": [read_file],
-    "impl:file_system:glob_files": [glob_files],
-    "impl:file_system:grep_files": [grep_files],
-    "impl:file_system:ls": [ls],
-    "impl:file_system": FILE_SYSTEM_TOOLS,
-    "impl:terminal": TERMINAL_TOOLS,
-    "impl": _ALL_IMPL_TOOLS,
-    "internal:memory": MEMORY_TOOLS,
-    "internal:todo": TODO_TOOLS,
-    "internal": [*MEMORY_TOOLS, *TODO_TOOLS],
-}
-
-
-def _resolve_tool_patterns(patterns: list[str]) -> list:
-    """Resolve declarative tool patterns into tool objects.
-
-    Pattern matching is deliberately coarse for now — we match the
-    longest prefix of each pattern against ``_TOOL_GROUPS``.  A full
-    glob/negation engine comes with the tool factory in Phase 5.
-    """
-    seen_names: set[str] = set()
-    tools: list = []
-
-    for pattern in patterns:
-        # Strip trailing wildcards for prefix matching.
-        key = pattern.rstrip(":*")
-        matched = _TOOL_GROUPS.get(key)
-
-        if matched is None:
-            # Try progressively shorter prefixes.
-            parts = key.split(":")
-            while parts and matched is None:
-                parts.pop()
-                matched = _TOOL_GROUPS.get(":".join(parts)) if parts else None
-
-        if matched:
-            for t in matched:
-                if t.name not in seen_names:
-                    seen_names.add(t.name)
-                    tools.append(t)
-
-    return tools
+TOOL_CATEGORY_IMPL = "impl"
+TOOL_CATEGORY_INTERNAL = "internal"
 
 
 # ==============================================================================
@@ -179,9 +138,11 @@ class AgentFactory:
         *,
         model: BaseChatModel | None = None,
         registry: ConfigRegistry | None = None,
+        tool_factory: ToolFactory | None = None,
     ) -> None:
         self._model = model
         self._registry = registry
+        self._tool_factory = tool_factory or ToolFactory()
 
     # ------------------------------------------------------------------
     # LLM
@@ -198,14 +159,95 @@ class AgentFactory:
         )
 
     # ------------------------------------------------------------------
+    # Tool reference parsing (three-part → two-part)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_tool_references(
+        tool_refs: list[str] | None,
+    ) -> tuple[list[str] | None, list[str] | None]:
+        """Split three-part tool references into per-category two-part patterns.
+
+        Each reference has the form ``category:module:name`` (e.g.
+        ``impl:file_system:read_file``).  Negative patterns start with
+        ``!`` (e.g. ``!impl:terminal:*``).
+
+        Returns ``(impl_patterns, internal_patterns)`` where each list
+        contains two-part ``module:name`` patterns (or ``None``).
+        """
+        if not tool_refs:
+            return None, None
+
+        impl_patterns: list[str] = []
+        internal_patterns: list[str] = []
+
+        for ref in tool_refs:
+            is_negative = ref.startswith("!")
+            clean_ref = ref[1:] if is_negative else ref
+
+            parts = clean_ref.split(":")
+            if len(parts) != 3:
+                logger.warning("Invalid tool reference format: %s", ref)
+                continue
+
+            tool_type, module_pattern, tool_pattern = parts
+            pattern = f"{module_pattern}:{tool_pattern}"
+            if is_negative:
+                pattern = f"!{pattern}"
+
+            if tool_type == TOOL_CATEGORY_IMPL:
+                impl_patterns.append(pattern)
+            elif tool_type == TOOL_CATEGORY_INTERNAL:
+                internal_patterns.append(pattern)
+            else:
+                logger.warning("Unknown tool type: %s", tool_type)
+
+        return (
+            impl_patterns or None,
+            internal_patterns or None,
+        )
+
+    # ------------------------------------------------------------------
+    # Tool dict / filtering helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_tool_dict(tools: list[BaseTool]) -> dict[str, BaseTool]:
+        """Build a name → tool mapping for fast lookup."""
+        return {tool.name: tool for tool in tools}
+
+    @staticmethod
+    def _filter_tools(
+        tool_dict: dict[str, BaseTool],
+        patterns: list[str] | None,
+        module_map: dict[str, str],
+    ) -> list[BaseTool]:
+        """Filter tools by pattern with wildcard and negative pattern support.
+
+        Each pattern is a two-part ``module:name`` glob
+        (e.g. ``file_system:*``, ``!terminal:run_command``).  Matching
+        uses ``fnmatch`` under the hood via :func:`matches_patterns`.
+        """
+        if not patterns:
+            return []
+
+        return [
+            tool
+            for name, tool in tool_dict.items()
+            if matches_patterns(
+                patterns, two_part_matcher(name, module_map.get(name, ""))
+            )
+        ]
+
+    # ------------------------------------------------------------------
     # Config-driven resolution
     # ------------------------------------------------------------------
 
     def _resolve_subagent(self, decl: DeclSubAgentConfig) -> SubAgentRuntime:
         """Convert a declarative subagent config into a runtime config."""
-        tools: list = []
-        if decl.tools and decl.tools.patterns:
-            tools = _resolve_tool_patterns(decl.tools.patterns)
+        tools = self._resolve_tools_from_patterns(
+            decl.tools.patterns if decl.tools else [],
+        )
         # Fallback: if no patterns resolved, give full impl + internal.
         if not tools:
             tools = [*_ALL_IMPL_TOOLS, *MEMORY_TOOLS, *TODO_TOOLS]
@@ -224,10 +266,37 @@ class AgentFactory:
         The ``think`` tool is intentionally excluded — only subagents
         get it (as a return-direct exit ramp via ``create_task_tool``).
         """
-        tools: list = []
-        if agent_cfg.tools and agent_cfg.tools.patterns:
-            tools = _resolve_tool_patterns(agent_cfg.tools.patterns)
+        tools = self._resolve_tools_from_patterns(
+            agent_cfg.tools.patterns if agent_cfg.tools else [],
+        )
         return _prepare_tools(tools)
+
+    def _resolve_tools_from_patterns(self, patterns: list[str]) -> list[BaseTool]:
+        """Resolve a list of three-part patterns into tool objects.
+
+        Uses the ``ToolFactory`` module maps for proper wildcard and
+        negation matching.
+        """
+        if not patterns:
+            return []
+
+        impl_patterns, internal_patterns = self._parse_tool_references(patterns)
+
+        impl_dict = self._build_tool_dict(self._tool_factory.get_impl_tools())
+        internal_dict = self._build_tool_dict(self._tool_factory.get_internal_tools())
+
+        impl_tools = self._filter_tools(
+            impl_dict,
+            impl_patterns,
+            self._tool_factory.get_impl_module_map(),
+        )
+        internal_tools = self._filter_tools(
+            internal_dict,
+            internal_patterns,
+            self._tool_factory.get_internal_module_map(),
+        )
+
+        return [*impl_tools, *internal_tools]
 
     # ------------------------------------------------------------------
     # Hardcoded tool surfaces (fallback)
