@@ -14,7 +14,7 @@ from prompt_toolkit.history import InMemoryHistory
 
 from relay.cli.bootstrap import Initializer
 from relay.cli.core.context import Context
-from relay.cli.dispatchers.commands import dispatch_command
+from relay.cli.dispatchers.commands import CommandDispatcher
 from relay.cli.dispatchers.messages import MessageDispatcher
 from relay.cli.handlers.threads import ThreadManager
 from relay.cli.ui.renderer import render_info
@@ -36,6 +36,7 @@ class Session:
 
         self.threads = ThreadManager()
         self.message_dispatcher = MessageDispatcher(self)
+        self.command_dispatcher = CommandDispatcher(self)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -60,36 +61,6 @@ class Session:
             return None
 
     # ------------------------------------------------------------------
-    # Resume handling
-    # ------------------------------------------------------------------
-
-    async def _handle_resume(self, prompt_session: PromptSession) -> None:
-        """Show thread list, switch to the selected thread, handle pending interrupts."""
-        # Load persisted threads from the checkpointer so that threads
-        # from previous sessions are discoverable.
-        checkpointer = getattr(self.graph, "checkpointer", None)
-        if checkpointer:
-            await self.threads.load_persisted_threads(checkpointer)
-
-        selected = await self.threads.select_thread(prompt_session)
-        if not selected:
-            return
-
-        self.context.thread_id = selected
-        render_info(f"Resumed thread {selected[:8]}.")
-
-        # Check for pending interrupts in the checkpoint.
-        if not checkpointer:
-            return
-
-        interrupts = await ThreadManager.get_pending_interrupts(
-            checkpointer, self.context.thread_id
-        )
-        if interrupts:
-            render_info("This thread has a pending interrupt.")
-            await self.message_dispatcher.resume_from_interrupt(interrupts)
-
-    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -111,13 +82,11 @@ class Session:
             if text.lower() in ("exit", "quit", "stop"):
                 break
 
-            # Slash commands.
+            # Slash commands — all routed through the async dispatcher.
             if text.startswith("/"):
-                cmd = text.strip().lower()
-                if cmd == "/resume":
-                    await self._handle_resume(prompt_session)
-                    continue
-                should_exit = dispatch_command(text, self)
+                should_exit = await self.command_dispatcher.dispatch(
+                    text, prompt_session=prompt_session
+                )
                 if should_exit:
                     break
                 continue
