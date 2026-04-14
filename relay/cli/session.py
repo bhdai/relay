@@ -16,12 +16,11 @@ from langgraph.types import Command
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
-from relay.checkpointer import create_checkpointer
+from relay.cli.bootstrap import Initializer
 from relay.cli.commands import dispatch_command
 from relay.cli.renderer import render_cost_summary, render_info
 from relay.cli.streaming import prompt_for_interrupt, stream_response
 from relay.cli.threads import ThreadManager
-from relay.graph import build_graph_with_checkpointer
 
 
 class Session:
@@ -41,9 +40,9 @@ class Session:
         self.total_output_tokens: int = 0
         self.running = True
 
-        # Set by start() inside the checkpointer context manager.
+        # Set by start() inside the initializer context manager.
         self.graph = None
-        self.checkpointer = None
+        self._initializer = Initializer()
 
         self.threads = ThreadManager()
 
@@ -57,9 +56,8 @@ class Session:
 
     async def start(self) -> None:
         """Run the REPL until the user exits."""
-        async with create_checkpointer(backend=self.backend) as checkpointer:
-            self.checkpointer = checkpointer
-            self.graph = build_graph_with_checkpointer(checkpointer)
+        async with self._initializer.get_graph(backend=self.backend) as graph:
+            self.graph = graph
             await self._main_loop()
 
     # ------------------------------------------------------------------
@@ -129,11 +127,12 @@ class Session:
         render_info(f"Resumed thread {selected[:8]}.")
 
         # Check for pending interrupts in the checkpoint.
-        if not self.checkpointer:
+        checkpointer = getattr(self.graph, "checkpointer", None)
+        if not checkpointer:
             return
 
         interrupts = await ThreadManager.get_pending_interrupts(
-            self.checkpointer, self.thread_id
+            checkpointer, self.thread_id
         )
         if interrupts:
             render_info("This thread has a pending interrupt.")
