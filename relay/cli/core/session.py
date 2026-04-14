@@ -17,10 +17,10 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
 from relay.cli.bootstrap import Initializer
-from relay.cli.commands import dispatch_command
-from relay.cli.renderer import render_cost_summary, render_info
-from relay.cli.streaming import prompt_for_interrupt, stream_response
-from relay.cli.threads import ThreadManager
+from relay.cli.core.streaming import prompt_for_interrupt, stream_response
+from relay.cli.dispatchers.commands import dispatch_command
+from relay.cli.handlers.threads import ThreadManager
+from relay.cli.ui.renderer import render_cost_summary, render_info
 
 
 class Session:

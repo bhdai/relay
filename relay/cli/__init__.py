@@ -1,5 +1,5 @@
 """Interactive REPL for the relay agent."""
 
-from relay.cli.session import Session
+from relay.cli.core.session import Session
 
 __all__ = ["Session"]

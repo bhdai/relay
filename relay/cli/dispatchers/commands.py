@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from relay.cli.renderer import console, render_cost_summary, render_error, render_info
+from relay.cli.ui.renderer import console, render_cost_summary, render_error, render_info
 
 
 # ==============================================================================
