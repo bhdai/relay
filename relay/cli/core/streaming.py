@@ -175,8 +175,10 @@ async def stream_response(
             if namespace == "messages":
                 msg, _metadata = chunk
                 if isinstance(msg, AIMessageChunk) and msg.content:
-                    print(msg.content, end="", flush=True)
-                    stats.collected_text += msg.content
+                    text = msg.content if isinstance(msg.content, str) else ""
+                    if text:
+                        print(text, end="", flush=True)
+                        stats.collected_text += text
 
             # -- Node-level updates ("updates" mode) --
             elif namespace == "updates":
