@@ -17,7 +17,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.types import Interrupt
 from prompt_toolkit import PromptSession
 
-from relay.cli.ui.renderer import console, render_error, render_info
+from relay.cli.theme import console
+from relay.cli.ui.renderer import render_error, render_info
 
 if TYPE_CHECKING:
     from relay.checkpointer.base import BaseCheckpointer as RelayCheckpointer
@@ -93,7 +94,7 @@ class ThreadManager:
         for i, (tid, preview) in enumerate(self._threads.items(), 1):
             short_id = tid[:8]
             display = preview[:60] + "..." if len(preview) > 60 else preview
-            console.print(f"  {i}. [{short_id}] {display}", style="dim")
+            console.print(f"  {i}. [{short_id}] {display}", style="muted")
         console.print()
 
         try:

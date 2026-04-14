@@ -18,8 +18,8 @@ from langgraph.types import Command, Interrupt
 from prompt_toolkit import PromptSession
 
 from relay.agents.context import AgentContext
+from relay.cli.theme import console
 from relay.cli.ui.renderer import (
-    console,
     render_cost_summary,
     render_info,
     render_tool_call,
@@ -75,16 +75,16 @@ async def prompt_for_interrupt(
 
         # Display the interrupt question.
         if hasattr(payload, "question"):
-            console.print(f"  ? {payload.question}", style="bold yellow")
+            console.print(f"  ? {payload.question}", style="warning bold")
         else:
-            console.print(f"  ? {payload}", style="bold yellow")
+            console.print(f"  ? {payload}", style="warning bold")
 
         # Show options if available.
         options: list[str] = []
         if hasattr(payload, "options") and payload.options:
             options = payload.options
             for j, opt in enumerate(options, 1):
-                console.print(f"    {j}. {opt}", style="dim")
+                console.print(f"    {j}. {opt}", style="muted")
 
         # Collect user response.
         try:
@@ -218,7 +218,7 @@ async def stream_response(
                         if isinstance(msg, ToolMessage) and msg.status == "error":
                             console.print(
                                 f"  ✗ {msg.name}: {msg.content[:200]}",
-                                style="bold red",
+                                style="error bold",
                             )
 
                     # Extract cost data from state updates.
