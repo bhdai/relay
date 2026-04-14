@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
@@ -17,6 +16,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
 from relay.cli.bootstrap import Initializer
+from relay.cli.core.context import Context
 from relay.cli.core.streaming import prompt_for_interrupt, stream_response
 from relay.cli.dispatchers.commands import dispatch_command
 from relay.cli.handlers.threads import ThreadManager
@@ -32,13 +32,8 @@ class Session:
     with ``Command(resume=value)``.
     """
 
-    def __init__(self, *, backend: str = "sqlite") -> None:
-        self.backend = backend
-        self.thread_id = str(uuid4())
-        self.total_cost: float = 0.0
-        self.total_input_tokens: int = 0
-        self.total_output_tokens: int = 0
-        self.running = True
+    def __init__(self, context: Context | None = None) -> None:
+        self.context = context or Context()
 
         # Set by start() inside the initializer context manager.
         self.graph = None
@@ -56,7 +51,7 @@ class Session:
 
     async def start(self) -> None:
         """Run the REPL until the user exits."""
-        async with self._initializer.get_graph(backend=self.backend) as graph:
+        async with self._initializer.get_graph(backend=self.context.backend) as graph:
             self.graph = graph
             await self._main_loop()
 
@@ -94,7 +89,7 @@ class Session:
             stats = await stream_response(
                 self.graph,
                 input_value,
-                thread_id=self.thread_id,
+                thread_id=self.context.thread_id,
             )
         except asyncio.CancelledError:
             render_info("\n  (cancelled)")
@@ -106,9 +101,11 @@ class Session:
         if stats.collected_text:
             print()
 
-        self.total_input_tokens += stats.input_tokens
-        self.total_output_tokens += stats.output_tokens
-        self.total_cost += stats.cost
+        self.context.accumulate(
+            input_tokens=stats.input_tokens,
+            output_tokens=stats.output_tokens,
+            cost=stats.cost,
+        )
 
         if stats.input_tokens or stats.output_tokens:
             render_cost_summary(stats.input_tokens, stats.output_tokens, stats.cost)
@@ -129,7 +126,7 @@ class Session:
         if not selected:
             return
 
-        self.thread_id = selected
+        self.context.thread_id = selected
         render_info(f"Resumed thread {selected[:8]}.")
 
         # Check for pending interrupts in the checkpoint.
@@ -137,7 +134,7 @@ class Session:
             return
 
         interrupts = await ThreadManager.get_pending_interrupts(
-            checkpointer, self.thread_id
+            checkpointer, self.context.thread_id
         )
         if interrupts:
             render_info("This thread has a pending interrupt.")
@@ -154,7 +151,7 @@ class Session:
 
         render_info("relay agent ready. Type /help for commands.")
 
-        while self.running:
+        while self.context.running:
             text = await self._get_input(prompt_session)
 
             if text is None:
@@ -179,7 +176,7 @@ class Session:
                 continue
 
             # Record thread and stream response.
-            self.threads.record(self.thread_id, preview=text)
+            self.threads.record(self.context.thread_id, preview=text)
 
             self._stream_task = asyncio.ensure_future(
                 self._run_stream({"messages": [HumanMessage(content=text)]})
