@@ -103,29 +103,33 @@ class TestParseToolReferences:
             "internal:todo:write_todos",
         ]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["file_system:read_file"]
+        assert mcp is None
         assert internal == ["todo:write_todos"]
 
     def test_parse_none_returns_none(self):
-        impl, internal = AgentFactory._parse_tool_references(None)
+        impl, mcp, internal = AgentFactory._parse_tool_references(None)
 
         assert impl is None
+        assert mcp is None
         assert internal is None
 
     def test_parse_empty_list_returns_none(self):
-        impl, internal = AgentFactory._parse_tool_references([])
+        impl, mcp, internal = AgentFactory._parse_tool_references([])
 
         assert impl is None
+        assert mcp is None
         assert internal is None
 
     def test_parse_only_impl_tools(self):
         tool_refs = ["impl:file_system:read_file", "impl:web:fetch_url"]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["file_system:read_file", "web:fetch_url"]
+        assert mcp is None
         assert internal is None
 
     def test_parse_invalid_format_skipped(self):
@@ -135,9 +139,10 @@ class TestParseToolReferences:
             "internal:todo:write_todos",
         ]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["file_system:read_file"]
+        assert mcp is None
         assert internal == ["todo:write_todos"]
 
     def test_parse_unknown_tool_type_skipped(self):
@@ -147,9 +152,10 @@ class TestParseToolReferences:
             "internal:todo:write_todos",
         ]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["file_system:read_file"]
+        assert mcp is None
         assert internal == ["todo:write_todos"]
 
     def test_parse_wildcard_patterns(self):
@@ -158,9 +164,10 @@ class TestParseToolReferences:
             "internal:todo:write_*",
         ]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["*:*"]
+        assert mcp is None
         assert internal == ["todo:write_*"]
 
     def test_parse_negative_patterns(self):
@@ -171,10 +178,24 @@ class TestParseToolReferences:
             "!internal:todo:*",
         ]
 
-        impl, internal = AgentFactory._parse_tool_references(tool_refs)
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
 
         assert impl == ["*:*", "!terminal:*"]
+        assert mcp is None
         assert internal == ["*:*", "!todo:*"]
+
+    def test_parse_mcp_references(self):
+        tool_refs = [
+            "impl:file_system:read_file",
+            "mcp:my_server:my_tool",
+            "mcp:other_server:*",
+        ]
+
+        impl, mcp, internal = AgentFactory._parse_tool_references(tool_refs)
+
+        assert impl == ["file_system:read_file"]
+        assert mcp == ["my_server:my_tool", "other_server:*"]
+        assert internal is None
 
 
 # ==============================================================================
@@ -319,3 +340,40 @@ class TestFilterTools:
 
         assert len(result) == 2
         assert {t.name for t in result} == {"read_file", "write_file"}
+
+
+# ==============================================================================
+# _filter_mcp_tools
+# ==============================================================================
+
+
+class TestFilterMcpTools:
+    def test_filter_mcp_tools_by_server(self, create_mock_tool):
+        """MCP tools use ``server__name`` format in both tool_dict and module_map."""
+        tool_a = create_mock_tool("srv__tool_a")
+        tool_b = create_mock_tool("srv__tool_b")
+        tool_c = create_mock_tool("other__tool_c")
+
+        mcp_dict = AgentFactory._build_tool_dict([tool_a, tool_b, tool_c])
+        mcp_module_map = {
+            "srv__tool_a": "srv",
+            "srv__tool_b": "srv",
+            "other__tool_c": "other",
+        }
+
+        result = AgentFactory._filter_mcp_tools(
+            mcp_dict, ["srv:*"], mcp_module_map
+        )
+        assert {t.name for t in result} == {"srv__tool_a", "srv__tool_b"}
+
+    def test_filter_mcp_tools_none_patterns(self, create_mock_tool):
+        tool_a = create_mock_tool("srv__tool_a")
+        mcp_dict = AgentFactory._build_tool_dict([tool_a])
+        mcp_module_map = {"srv__tool_a": "srv"}
+
+        result = AgentFactory._filter_mcp_tools(mcp_dict, None, mcp_module_map)
+        assert result == []
+
+    def test_filter_mcp_tools_none_dict(self):
+        result = AgentFactory._filter_mcp_tools(None, ["srv:*"], None)
+        assert result == []

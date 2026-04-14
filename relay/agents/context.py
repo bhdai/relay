@@ -38,6 +38,8 @@ class AgentContext(BaseModel):
     tool_output_max_tokens: int = 10_000
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
+    tool_catalog: list[Any] = Field(default_factory=list, exclude=True)
+    skill_catalog: list[Any] = Field(default_factory=list, exclude=True)
 
     @property
     def template_vars(self) -> dict[str, Any]:

@@ -16,6 +16,7 @@ The factory supports two modes:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_openai import ChatOpenAI
@@ -43,6 +44,8 @@ if TYPE_CHECKING:
     from relay.configs.agent import AgentConfig as DeclAgentConfig
     from relay.configs.agent import SubAgentConfig as DeclSubAgentConfig
     from relay.configs.registry import ConfigRegistry
+    from relay.mcp.client import MCPClient
+    from relay.skills.factory import Skill, SkillFactory
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,7 @@ def _prepare_tools(tools: list) -> list:
 # ==============================================================================
 
 TOOL_CATEGORY_IMPL = "impl"
+TOOL_CATEGORY_MCP = "mcp"
 TOOL_CATEGORY_INTERNAL = "internal"
 
 
@@ -139,10 +143,12 @@ class AgentFactory:
         model: BaseChatModel | None = None,
         registry: ConfigRegistry | None = None,
         tool_factory: ToolFactory | None = None,
+        skill_factory: SkillFactory | None = None,
     ) -> None:
         self._model = model
         self._registry = registry
         self._tool_factory = tool_factory or ToolFactory()
+        self._skill_factory = skill_factory
 
     # ------------------------------------------------------------------
     # LLM
@@ -165,20 +171,22 @@ class AgentFactory:
     @staticmethod
     def _parse_tool_references(
         tool_refs: list[str] | None,
-    ) -> tuple[list[str] | None, list[str] | None]:
+    ) -> tuple[list[str] | None, list[str] | None, list[str] | None]:
         """Split three-part tool references into per-category two-part patterns.
 
         Each reference has the form ``category:module:name`` (e.g.
-        ``impl:file_system:read_file``).  Negative patterns start with
-        ``!`` (e.g. ``!impl:terminal:*``).
+        ``impl:file_system:read_file``, ``mcp:server:tool``).
+        Negative patterns start with ``!``.
 
-        Returns ``(impl_patterns, internal_patterns)`` where each list
-        contains two-part ``module:name`` patterns (or ``None``).
+        Returns ``(impl_patterns, mcp_patterns, internal_patterns)``
+        where each list contains two-part ``module:name`` patterns (or
+        ``None``).
         """
         if not tool_refs:
-            return None, None
+            return None, None, None
 
         impl_patterns: list[str] = []
+        mcp_patterns: list[str] = []
         internal_patterns: list[str] = []
 
         for ref in tool_refs:
@@ -197,6 +205,8 @@ class AgentFactory:
 
             if tool_type == TOOL_CATEGORY_IMPL:
                 impl_patterns.append(pattern)
+            elif tool_type == TOOL_CATEGORY_MCP:
+                mcp_patterns.append(pattern)
             elif tool_type == TOOL_CATEGORY_INTERNAL:
                 internal_patterns.append(pattern)
             else:
@@ -204,6 +214,7 @@ class AgentFactory:
 
         return (
             impl_patterns or None,
+            mcp_patterns or None,
             internal_patterns or None,
         )
 
@@ -239,14 +250,46 @@ class AgentFactory:
             )
         ]
 
+    @staticmethod
+    def _filter_mcp_tools(
+        tool_dict: dict[str, BaseTool] | None,
+        patterns: list[str] | None,
+        module_map: dict[str, str] | None,
+    ) -> list[BaseTool]:
+        """Filter MCP tools by pattern.  Handles ``server__name`` prefixed format."""
+        if not patterns or not tool_dict:
+            return []
+
+        effective_map = module_map or {}
+
+        def get_original_name(prefixed_name: str) -> str:
+            parts = prefixed_name.split("__", 1)
+            return parts[1] if len(parts) == 2 else prefixed_name
+
+        return [
+            tool
+            for name, tool in tool_dict.items()
+            if matches_patterns(
+                patterns,
+                two_part_matcher(get_original_name(name), effective_map.get(name, "")),
+            )
+        ]
+
     # ------------------------------------------------------------------
     # Config-driven resolution
     # ------------------------------------------------------------------
 
-    def _resolve_subagent(self, decl: DeclSubAgentConfig) -> SubAgentRuntime:
+    def _resolve_subagent(
+        self,
+        decl: DeclSubAgentConfig,
+        mcp_tools: dict[str, BaseTool] | None = None,
+        mcp_module_map: dict[str, str] | None = None,
+    ) -> SubAgentRuntime:
         """Convert a declarative subagent config into a runtime config."""
         tools = self._resolve_tools_from_patterns(
             decl.tools.patterns if decl.tools else [],
+            mcp_tools=mcp_tools,
+            mcp_module_map=mcp_module_map,
         )
         # Fallback: if no patterns resolved, give full impl + internal.
         if not tools:
@@ -260,7 +303,12 @@ class AgentFactory:
             recursion_limit=decl.recursion_limit,
         )
 
-    def _resolve_coordinator_tools(self, agent_cfg: DeclAgentConfig) -> list:
+    def _resolve_coordinator_tools(
+        self,
+        agent_cfg: DeclAgentConfig,
+        mcp_tools: dict[str, BaseTool] | None = None,
+        mcp_module_map: dict[str, str] | None = None,
+    ) -> list:
         """Resolve the coordinator's tool surface from its config.
 
         The ``think`` tool is intentionally excluded — only subagents
@@ -268,19 +316,29 @@ class AgentFactory:
         """
         tools = self._resolve_tools_from_patterns(
             agent_cfg.tools.patterns if agent_cfg.tools else [],
+            mcp_tools=mcp_tools,
+            mcp_module_map=mcp_module_map,
         )
         return _prepare_tools(tools)
 
-    def _resolve_tools_from_patterns(self, patterns: list[str]) -> list[BaseTool]:
+    def _resolve_tools_from_patterns(
+        self,
+        patterns: list[str],
+        mcp_tools: dict[str, BaseTool] | None = None,
+        mcp_module_map: dict[str, str] | None = None,
+    ) -> list[BaseTool]:
         """Resolve a list of three-part patterns into tool objects.
 
         Uses the ``ToolFactory`` module maps for proper wildcard and
-        negation matching.
+        negation matching.  When *mcp_tools* is provided, ``mcp:``
+        category patterns are resolved against those tools.
         """
         if not patterns:
             return []
 
-        impl_patterns, internal_patterns = self._parse_tool_references(patterns)
+        impl_patterns, mcp_patterns, internal_patterns = self._parse_tool_references(
+            patterns
+        )
 
         impl_dict = self._build_tool_dict(self._tool_factory.get_impl_tools())
         internal_dict = self._build_tool_dict(self._tool_factory.get_internal_tools())
@@ -290,13 +348,22 @@ class AgentFactory:
             impl_patterns,
             self._tool_factory.get_impl_module_map(),
         )
+
+        resolved_mcp: list[BaseTool] = []
+        if mcp_patterns and mcp_tools:
+            resolved_mcp = self._filter_mcp_tools(
+                mcp_tools,
+                mcp_patterns,
+                mcp_module_map or {},
+            )
+
         internal_tools = self._filter_tools(
             internal_dict,
             internal_patterns,
             self._tool_factory.get_internal_module_map(),
         )
 
-        return [*impl_tools, *internal_tools]
+        return [*resolved_mcp, *impl_tools, *internal_tools]
 
     # ------------------------------------------------------------------
     # Hardcoded tool surfaces (fallback)
@@ -364,6 +431,8 @@ class AgentFactory:
         *,
         checkpointer: BaseCheckpointSaver | None = None,
         agent_name: str | None = None,
+        mcp_client: MCPClient | None = None,
+        skills_dir: Path | None = None,
     ) -> CompiledStateGraph:
         """Build a graph from declarative YAML configs.
 
@@ -371,7 +440,18 @@ class AgentFactory:
         ``ConfigRegistry``.  Falls back to ``create()`` if no
         registry is available.
 
-        This is ``async`` because config loading reads files.
+        Parameters
+        ----------
+        mcp_client:
+            Optional MCP client whose tools are merged into the
+            ``mcp:`` category for pattern matching.
+        skills_dir:
+            Optional directory containing skill packages.  When
+            provided and a ``SkillFactory`` is available, skills are
+            loaded and appended to the system prompt.
+
+        This is ``async`` because config loading and MCP/skill loading
+        read files.
         """
         if self._registry is None:
             return self.create(checkpointer=checkpointer)
@@ -381,8 +461,35 @@ class AgentFactory:
         # Resolve prompt.
         prompt = agent_cfg.prompt if isinstance(agent_cfg.prompt, str) else ""
 
+        # ----------------------------------------------------------
+        # MCP tools (optional)
+        # ----------------------------------------------------------
+        mcp_tools_dict: dict[str, BaseTool] | None = None
+        mcp_module_map: dict[str, str] | None = None
+        if mcp_client is not None:
+            mcp_tool_list = await mcp_client.tools()
+            mcp_tools_dict = self._build_tool_dict(mcp_tool_list)
+            mcp_module_map = mcp_client.module_map
+
+        # ----------------------------------------------------------
+        # Skills (optional)
+        # ----------------------------------------------------------
+        skill_list: list[Skill] = []
+        if self._skill_factory is not None and skills_dir is not None:
+            skill_dict = await self._skill_factory.load_skills(skills_dir)
+            for category_skills in skill_dict.values():
+                skill_list.extend(category_skills.values())
+
+        # Append skill summary to prompt if skills were loaded.
+        if skill_list:
+            prompt = f"{prompt}{self._build_skills_text(skill_list)}"
+
         # Resolve coordinator tools.
-        coordinator_tools = self._resolve_coordinator_tools(agent_cfg)
+        coordinator_tools = self._resolve_coordinator_tools(
+            agent_cfg,
+            mcp_tools=mcp_tools_dict,
+            mcp_module_map=mcp_module_map,
+        )
 
         # Resolve subagents.
         subagent_runtimes: list[SubAgentRuntime] = []
@@ -394,7 +501,13 @@ class AgentFactory:
                     f"subagent '{sa_name}' must exist in registry "
                     f"(validated during load_agents)"
                 )
-                subagent_runtimes.append(self._resolve_subagent(sa_decl))
+                subagent_runtimes.append(
+                    self._resolve_subagent(
+                        sa_decl,
+                        mcp_tools=mcp_tools_dict,
+                        mcp_module_map=mcp_module_map,
+                    )
+                )
 
         return create_deep_agent(
             model=self._get_model(),
@@ -406,3 +519,20 @@ class AgentFactory:
             checkpointer=checkpointer,
             name=agent_cfg.name,
         )
+
+    # ------------------------------------------------------------------
+    # Skill helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_skills_text(skills: list[Skill]) -> str:
+        """Build skills documentation text for prompt injection."""
+        text = "\n\n# Available Skills\n\n"
+        text += (
+            "When users ask you to perform tasks, check if any of the "
+            "available skills below can help complete the task more "
+            "effectively.\n\n"
+        )
+        for skill in skills:
+            text += f"- **{skill.category}/{skill.name}**: {skill.description}\n"
+        return text

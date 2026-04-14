@@ -252,3 +252,72 @@ class TestPackagedDefaults:
         # The prompt should be resolved text, not a file path list.
         assert isinstance(default_agent.prompt, str)
         assert len(default_agent.prompt) > 50  # should be substantial content
+
+
+# ==============================================================================
+# MCP config
+# ==============================================================================
+
+
+class TestMCPConfig:
+    async def test_load_mcp_empty_when_no_file(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        config_dir.mkdir(parents=True)
+
+        registry = ConfigRegistry(tmp_path)
+        mcp = await registry.load_mcp()
+        assert mcp.servers == {}
+
+    async def test_load_mcp_parses_servers(self, tmp_path: Path):
+        import json
+
+        config_dir = tmp_path / ".relay"
+        config_dir.mkdir(parents=True)
+        mcp_json = config_dir / "mcp.json"
+        mcp_json.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "my-server": {"command": "npx", "args": ["-y", "@my/srv"]}
+                    }
+                }
+            )
+        )
+
+        registry = ConfigRegistry(tmp_path)
+        mcp = await registry.load_mcp()
+        assert "my-server" in mcp.servers
+
+    async def test_load_mcp_cached(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        config_dir.mkdir(parents=True)
+
+        registry = ConfigRegistry(tmp_path)
+        mcp1 = await registry.load_mcp()
+        mcp2 = await registry.load_mcp()
+        assert mcp1 is mcp2
+
+    async def test_save_mcp(self, tmp_path: Path):
+        import json
+
+        from relay.mcp.config import MCPConfig as MCPConfigModel
+        from relay.mcp.config import MCPServerConfig
+
+        config_dir = tmp_path / ".relay"
+        config_dir.mkdir(parents=True)
+
+        registry = ConfigRegistry(tmp_path)
+        config = MCPConfigModel(
+            servers={"test-srv": MCPServerConfig(command="echo")}
+        )
+        await registry.save_mcp(config)
+
+        # Verify file was written.
+        mcp_json = config_dir / "mcp.json"
+        assert mcp_json.exists()
+        data = json.loads(mcp_json.read_text())
+        assert "test-srv" in data["mcpServers"]
+
+        # Verify cache was updated.
+        loaded = await registry.load_mcp()
+        assert loaded is config

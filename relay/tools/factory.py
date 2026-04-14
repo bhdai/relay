@@ -40,6 +40,7 @@ class ToolFactory:
         # relay.tools.factory → relay.tools.internal.memory →
         # relay.agents.state → relay.agents → relay.agents.factory →
         # relay.tools.factory
+        from relay.tools.catalog import CATALOG_TOOLS, SKILL_CATALOG_TOOLS
         from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS
         from relay.tools.impl.terminal import TERMINAL_TOOLS
         from relay.tools.impl.web import WEB_TOOLS
@@ -48,6 +49,8 @@ class ToolFactory:
 
         self.impl_tools: list[BaseTool] = []
         self.internal_tools: list[BaseTool] = []
+        self.catalog_tools: list[BaseTool] = list(CATALOG_TOOLS)
+        self.skill_catalog_tools: list[BaseTool] = list(SKILL_CATALOG_TOOLS)
         self._impl_module_map: dict[str, str] = {}
         self._internal_module_map: dict[str, str] = {}
 
@@ -86,3 +89,11 @@ class ToolFactory:
     def get_internal_module_map(self) -> dict[str, str]:
         """Return tool-name → module-name mapping for internal tools."""
         return self._internal_module_map
+
+    def get_catalog_tools(self) -> list[BaseTool]:
+        """Return the tool-catalog meta-tools (fetch_tools, get_tool, run_tool)."""
+        return self.catalog_tools
+
+    def get_skill_catalog_tools(self) -> list[BaseTool]:
+        """Return the skill-catalog meta-tools (fetch_skills, get_skill)."""
+        return self.skill_catalog_tools
