@@ -51,3 +51,8 @@
   `InterruptHandler` class duplicates the same logic. Eventually
   `stream_response` should delegate to `InterruptHandler` to remove the
   duplication.
+- The `task` subagent tool hits `GraphRecursionError` (recursion limit of 100)
+  when invoked by the `explorer` subagent. The error propagates as a
+  `ToolException` and crashes the REPL. The subagent graph needs a higher
+  recursion limit or the `task` tool should catch `GraphRecursionError`
+  and return a graceful failure message.
