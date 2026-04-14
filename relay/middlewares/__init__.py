@@ -5,11 +5,13 @@ cross-cutting behaviour (cost tracking, interrupt repair, short-circuit
 on ``return_direct``).
 """
 
+from relay.middlewares.dynamic_prompt import create_dynamic_prompt_middleware
 from relay.middlewares.pending_tool_result import PendingToolResultMiddleware
 from relay.middlewares.return_direct import ReturnDirectMiddleware
 from relay.middlewares.token_cost import TokenCostMiddleware
 
 __all__ = [
+    "create_dynamic_prompt_middleware",
     "PendingToolResultMiddleware",
     "ReturnDirectMiddleware",
     "TokenCostMiddleware",

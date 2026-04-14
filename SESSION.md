@@ -15,3 +15,8 @@
 - `AgentContext.user_memory` is exposed in the prompt template, but the CLI
   streaming path constructs `AgentContext()` with the default empty string
   instead of loading any persisted user/project memory.
+- The interactive CLI special-cases `/resume` in `relay/cli/session.py` because
+  command dispatch is not fully async, which makes the REPL loop own too much
+  workflow logic.
+- Assistant streaming still writes directly from `relay/cli/streaming.py`
+  instead of routing all output through a single renderer layer.

@@ -75,3 +75,11 @@ Today's date: {current_date_time_zoned}
 
 {user_memory}\
 """
+
+
+# Relay's role-specific prompts are not differentiated yet.  Keep explicit
+# aliases so the coordinator/subagent graph can evolve incrementally without
+# duplicating the current baseline prompt.
+COORDINATOR_PROMPT = SYSTEM_PROMPT
+EXPLORER_PROMPT = SYSTEM_PROMPT
+WORKER_PROMPT = SYSTEM_PROMPT
