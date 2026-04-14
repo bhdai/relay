@@ -2,34 +2,29 @@
 
 This is the top-level orchestrator.  It wires together the
 checkpointer, graph, command dispatcher, thread manager, and
-streaming loop.
+message dispatcher.
 """
 
 from __future__ import annotations
 
 import asyncio
-import signal
 
-from langchain_core.messages import HumanMessage
-from langgraph.types import Command
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
 from relay.cli.bootstrap import Initializer
 from relay.cli.core.context import Context
-from relay.cli.core.streaming import prompt_for_interrupt, stream_response
 from relay.cli.dispatchers.commands import dispatch_command
+from relay.cli.dispatchers.messages import MessageDispatcher
 from relay.cli.handlers.threads import ThreadManager
-from relay.cli.ui.renderer import render_cost_summary, render_info
+from relay.cli.ui.renderer import render_info
 
 
 class Session:
     """Manages a single REPL session with streaming and thread management.
 
     The session owns the checkpointer lifecycle and the compiled graph.
-    Interrupt/resume is handled automatically: when a graph node calls
-    ``interrupt()``, the streaming loop prompts the user and loops back
-    with ``Command(resume=value)``.
+    Streaming and interrupt/resume are delegated to ``MessageDispatcher``.
     """
 
     def __init__(self, context: Context | None = None) -> None:
@@ -40,10 +35,7 @@ class Session:
         self._initializer = Initializer()
 
         self.threads = ThreadManager()
-
-        # Track the active streaming task so Ctrl+C can cancel it.
-        self._stream_task: asyncio.Task | None = None
-        self._original_sigint = signal.getsignal(signal.SIGINT)
+        self.message_dispatcher = MessageDispatcher(self)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -66,49 +58,6 @@ class Session:
             return await prompt_session.prompt_async("❯ ")
         except (EOFError, KeyboardInterrupt):
             return None
-
-    # ------------------------------------------------------------------
-    # SIGINT handling
-    # ------------------------------------------------------------------
-
-    def _sigint_handler(self, signum: int, frame: object) -> None:
-        """First Ctrl+C cancels the stream; second exits."""
-        if self._stream_task and not self._stream_task.done():
-            self._stream_task.cancel()
-        else:
-            signal.signal(signal.SIGINT, self._original_sigint)
-
-    # ------------------------------------------------------------------
-    # Streaming wrapper
-    # ------------------------------------------------------------------
-
-    async def _run_stream(self, input_value) -> None:
-        """Stream a response and accumulate cost."""
-        signal.signal(signal.SIGINT, self._sigint_handler)
-        try:
-            stats = await stream_response(
-                self.graph,
-                input_value,
-                thread_id=self.context.thread_id,
-            )
-        except asyncio.CancelledError:
-            render_info("\n  (cancelled)")
-            return
-        finally:
-            signal.signal(signal.SIGINT, self._original_sigint)
-
-        # Newline after the raw-streamed text.
-        if stats.collected_text:
-            print()
-
-        self.context.accumulate(
-            input_tokens=stats.input_tokens,
-            output_tokens=stats.output_tokens,
-            cost=stats.cost,
-        )
-
-        if stats.input_tokens or stats.output_tokens:
-            render_cost_summary(stats.input_tokens, stats.output_tokens, stats.cost)
 
     # ------------------------------------------------------------------
     # Resume handling
@@ -138,9 +87,7 @@ class Session:
         )
         if interrupts:
             render_info("This thread has a pending interrupt.")
-            resume_value = await prompt_for_interrupt(interrupts)
-            if resume_value is not None:
-                await self._run_stream(Command(resume=resume_value))
+            await self.message_dispatcher.resume_from_interrupt(interrupts)
 
     # ------------------------------------------------------------------
     # Main loop
@@ -178,12 +125,7 @@ class Session:
             # Record thread and stream response.
             self.threads.record(self.context.thread_id, preview=text)
 
-            self._stream_task = asyncio.ensure_future(
-                self._run_stream({"messages": [HumanMessage(content=text)]})
-            )
             try:
-                await self._stream_task
+                await self.message_dispatcher.dispatch(text)
             except asyncio.CancelledError:
                 pass
-            finally:
-                self._stream_task = None

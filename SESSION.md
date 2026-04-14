@@ -38,3 +38,8 @@
   `create_react_agent` middleware stack because they require runtime
   configuration (approval mode, tool-sandbox map) that the CLI does not
   yet wire up.
+- `AIMessageChunk.content` can be a list of content blocks (not just a string)
+  when the LLM returns multi-part responses. The streaming path now guards
+  against this, but the list-of-blocks case silently drops non-text content
+  instead of extracting text parts from the list. A proper fix would iterate
+  the list and extract `{"type": "text", "text": "..."}` blocks.
