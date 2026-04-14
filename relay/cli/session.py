@@ -21,7 +21,7 @@ from relay.cli.commands import dispatch_command
 from relay.cli.renderer import render_cost_summary, render_info
 from relay.cli.streaming import prompt_for_interrupt, stream_response
 from relay.cli.threads import ThreadManager
-from relay.graph import build_graph
+from relay.graph import build_graph_with_checkpointer
 
 
 class Session:
@@ -59,7 +59,7 @@ class Session:
         """Run the REPL until the user exits."""
         async with create_checkpointer(backend=self.backend) as checkpointer:
             self.checkpointer = checkpointer
-            self.graph = build_graph(checkpointer=checkpointer)
+            self.graph = build_graph_with_checkpointer(checkpointer)
             await self._main_loop()
 
     # ------------------------------------------------------------------
