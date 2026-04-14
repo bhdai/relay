@@ -13,7 +13,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.types import Interrupt
 from prompt_toolkit import PromptSession
 
-from relay.cli.renderer import console, render_error, render_info
+from relay.cli.ui.renderer import console, render_error, render_info
 
 if TYPE_CHECKING:
     pass

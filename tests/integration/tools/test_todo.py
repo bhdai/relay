@@ -3,7 +3,7 @@
 import pytest
 
 from relay.agents.state import AgentState
-from relay.tools.todo import read_todos, write_todos
+from relay.tools.internal.todo import read_todos, write_todos
 from tests.fixtures.tool_helpers import make_tool_call, run_tool
 
 TODO_TOOLS = [write_todos, read_todos]

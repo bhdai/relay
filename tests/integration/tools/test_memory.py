@@ -3,7 +3,7 @@
 import pytest
 
 from relay.agents.state import AgentState
-from relay.tools.memory import (
+from relay.tools.internal.memory import (
     edit_memory_file,
     list_memory_files,
     read_memory_file,

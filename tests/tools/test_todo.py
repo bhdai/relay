@@ -2,7 +2,7 @@
 
 from langgraph.types import Command
 
-from relay.tools.todo import read_todos, write_todos
+from relay.tools.internal.todo import read_todos, write_todos
 
 
 def _state(**overrides) -> dict:

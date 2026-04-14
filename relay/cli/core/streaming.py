@@ -16,7 +16,7 @@ from langgraph.types import Command, Interrupt
 from prompt_toolkit import PromptSession
 
 from relay.agents.context import AgentContext
-from relay.cli.renderer import (
+from relay.cli.ui.renderer import (
     console,
     render_cost_summary,
     render_info,

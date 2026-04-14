@@ -7,7 +7,7 @@ load_dotenv()
 
 import asyncio
 
-from relay.cli.session import Session
+from relay.cli import Session
 
 
 async def main():

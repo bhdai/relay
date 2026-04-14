@@ -2,8 +2,8 @@
 
 import pytest
 
-from relay.tools.filesystem import ls
-from relay.tools.terminal import run_command
+from relay.tools.impl.filesystem import ls
+from relay.tools.impl.terminal import run_command
 from tests.fixtures.tool_helpers import make_tool_call, run_tool
 
 
