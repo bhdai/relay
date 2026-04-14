@@ -1,18 +1,9 @@
 """Central registry for loading, caching, and resolving configurations.
 
-``ConfigRegistry`` is the single entry point for obtaining agent and
-subagent definitions.  It loads YAML files from either a project-local
-config directory (``.relay/``) or the packaged defaults that ship with
-relay.
-
-Compared to langrepl's registry this is intentionally minimal:
-
-- No LLM config files — relay still resolves LLMs from env settings.
-- No checkpointer config files — relay's checkpointer factory is
-  separate.
-- No sandbox, MCP, approval, skills, or server configs.
-
-Those will arrive in later phases.
+``ConfigRegistry`` is the single entry point for obtaining agent,
+subagent, and MCP definitions.  It loads YAML files from either a
+project-local config directory (``.relay/``) or the packaged defaults
+that ship with relay.
 """
 
 from __future__ import annotations
@@ -30,8 +21,25 @@ from relay.configs.agent import (
     SubAgentConfig,
 )
 from relay.configs.utils import load_prompt_content, load_yaml_dir
+from relay.mcp.config import MCPConfig
 
 logger = logging.getLogger(__name__)
+
+# Directory name for project-local configs (e.g. ``$PROJECT/.relay/``).
+CONFIG_DIR_NAME = ".relay"
+
+# Subdirectory names inside the config dir.
+CONFIG_AGENTS_DIR = Path(CONFIG_DIR_NAME) / "agents"
+CONFIG_SUBAGENTS_DIR = Path(CONFIG_DIR_NAME) / "subagents"
+
+# MCP config file (VS Code / Claude Code ``mcpServers`` format).
+CONFIG_MCP_FILE = "mcp.json"
+
+# MCP cache directory name.
+CONFIG_MCP_CACHE_DIR = ".mcp-cache"
+
+# Skills directory name.
+CONFIG_SKILLS_DIR = "skills"
 
 # Directory name for project-local configs (e.g. ``$PROJECT/.relay/``).
 CONFIG_DIR_NAME = ".relay"
@@ -59,6 +67,7 @@ class ConfigRegistry:
         # Lazy caches — populated by the first call to load_*.
         self._agents: BatchAgentConfig | None = None
         self._subagents: BatchSubAgentConfig | None = None
+        self._mcp: MCPConfig | None = None
 
     # ==================================================================
     # Setup
@@ -157,3 +166,39 @@ class ConfigRegistry:
         raise ValueError(
             f"Agent '{name}' not found.  Available: {agents.agent_names}"
         )
+
+    # ==================================================================
+    # MCP configs
+    # ==================================================================
+
+    async def load_mcp(
+        self,
+        *,
+        force_reload: bool = False,
+    ) -> MCPConfig:
+        """Load MCP configuration from ``.relay/mcp.json`` (cached).
+
+        Returns an empty ``MCPConfig`` if the file does not exist.
+        """
+        if self._mcp is not None and not force_reload:
+            return self._mcp
+
+        mcp_path = self.config_dir / CONFIG_MCP_FILE
+        self._mcp = await MCPConfig.from_json(mcp_path)
+        return self._mcp
+
+    async def save_mcp(self, config: MCPConfig) -> None:
+        """Write MCP configuration back to ``.relay/mcp.json``."""
+        import json
+
+        mcp_path = self.config_dir / CONFIG_MCP_FILE
+        await asyncio.to_thread(mcp_path.parent.mkdir, parents=True, exist_ok=True)
+
+        mcp_servers = {}
+        for name, server_config in config.servers.items():
+            mcp_servers[name] = server_config.model_dump()
+
+        data = {"mcpServers": mcp_servers}
+        content = json.dumps(data, indent=2)
+        await asyncio.to_thread(mcp_path.write_text, content)
+        self._mcp = config
