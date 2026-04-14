@@ -16,7 +16,7 @@ from typing import Any
 from langgraph.types import Interrupt
 from prompt_toolkit import PromptSession
 
-from relay.cli.ui.renderer import console
+from relay.cli.theme import console
 
 
 class InterruptHandler:
@@ -37,16 +37,16 @@ class InterruptHandler:
 
             # Display the interrupt question.
             if hasattr(payload, "question"):
-                console.print(f"  ? {payload.question}", style="bold yellow")
+                console.print(f"  ? {payload.question}", style="warning bold")
             else:
-                console.print(f"  ? {payload}", style="bold yellow")
+                console.print(f"  ? {payload}", style="warning bold")
 
             # Show options if available.
             options: list[str] = []
             if hasattr(payload, "options") and payload.options:
                 options = payload.options
                 for j, opt in enumerate(options, 1):
-                    console.print(f"    {j}. {opt}", style="dim")
+                    console.print(f"    {j}. {opt}", style="muted")
 
             # Collect user response.
             try:

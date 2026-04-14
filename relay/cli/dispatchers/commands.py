@@ -14,7 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from relay.cli.handlers.resume import ResumeHandler
-from relay.cli.ui.renderer import console, render_cost_summary, render_error, render_info
+from relay.cli.theme import console
+from relay.cli.ui.renderer import render_cost_summary, render_error, render_info
 
 if TYPE_CHECKING:
     from relay.cli.core.session import Session
@@ -51,7 +52,7 @@ class CommandDispatcher:
 
         if cmd == "/help":
             for name, desc in self.commands.items():
-                console.print(f"  {name:<10} {desc}", style="dim")
+                console.print(f"  {name:<10} {desc}", style="muted")
             return False
 
         if cmd == "/new":

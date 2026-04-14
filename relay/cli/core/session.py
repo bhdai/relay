@@ -9,14 +9,12 @@ from __future__ import annotations
 
 import asyncio
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.history import InMemoryHistory
-
 from relay.cli.bootstrap import Initializer
 from relay.cli.core.context import Context
 from relay.cli.dispatchers.commands import CommandDispatcher
 from relay.cli.dispatchers.messages import MessageDispatcher
 from relay.cli.handlers.threads import ThreadManager
+from relay.cli.ui.prompt import InteractivePrompt
 from relay.cli.ui.renderer import render_info
 
 
@@ -34,6 +32,7 @@ class Session:
         self.graph = None
         self._initializer = Initializer()
 
+        self.prompt = InteractivePrompt(self.context)
         self.threads = ThreadManager()
         self.message_dispatcher = MessageDispatcher(self)
         self.command_dispatcher = CommandDispatcher(self)
@@ -49,28 +48,14 @@ class Session:
             await self._main_loop()
 
     # ------------------------------------------------------------------
-    # Input
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def _get_input(prompt_session: PromptSession) -> str | None:
-        """Read a line of input, returning None on EOF/interrupt."""
-        try:
-            return await prompt_session.prompt_async("❯ ")
-        except (EOFError, KeyboardInterrupt):
-            return None
-
-    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
     async def _main_loop(self) -> None:
-        prompt_session: PromptSession = PromptSession(history=InMemoryHistory())
-
         render_info("relay agent ready. Type /help for commands.")
 
         while self.context.running:
-            text = await self._get_input(prompt_session)
+            text = await self.prompt.get_input()
 
             if text is None:
                 break
@@ -85,7 +70,7 @@ class Session:
             # Slash commands — all routed through the async dispatcher.
             if text.startswith("/"):
                 should_exit = await self.command_dispatcher.dispatch(
-                    text, prompt_session=prompt_session
+                    text, prompt_session=self.prompt.session
                 )
                 if should_exit:
                     break

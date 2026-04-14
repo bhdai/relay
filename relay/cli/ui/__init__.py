@@ -1,1 +1,1 @@
-"""CLI rendering and display utilities."""
+"""CLI rendering, prompt, and display utilities."""
