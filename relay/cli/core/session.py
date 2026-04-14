@@ -119,6 +119,12 @@ class Session:
 
     async def _handle_resume(self, prompt_session: PromptSession) -> None:
         """Show thread list, switch to the selected thread, handle pending interrupts."""
+        # Load persisted threads from the checkpointer so that threads
+        # from previous sessions are discoverable.
+        checkpointer = getattr(self.graph, "checkpointer", None)
+        if checkpointer:
+            await self.threads.load_persisted_threads(checkpointer)
+
         selected = await self.threads.select_thread(prompt_session)
         if not selected:
             return
@@ -127,7 +133,6 @@ class Session:
         render_info(f"Resumed thread {selected[:8]}.")
 
         # Check for pending interrupts in the checkpoint.
-        checkpointer = getattr(self.graph, "checkpointer", None)
         if not checkpointer:
             return
 

@@ -9,6 +9,8 @@ and re-enters the stream with ``Command(resume=...)``.
 from __future__ import annotations
 
 import asyncio
+import logging
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessageChunk, ToolMessage
@@ -22,6 +24,35 @@ from relay.cli.ui.renderer import (
     render_info,
     render_tool_call,
 )
+
+logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# User Memory Loading
+# ==============================================================================
+#
+# If a ``memory.md`` file exists in the ``.relay/`` directory, its
+# content is injected into ``AgentContext.user_memory`` so the system
+# prompt can reference it.  This mirrors langrepl's approach of loading
+# persistent user/project memory into context.
+
+_RELAY_DIR = ".relay"
+_MEMORY_FILENAME = "memory.md"
+
+
+def _load_user_memory(working_dir: str | None = None) -> str:
+    """Read ``.relay/memory.md`` and return its content, or ``""``."""
+    base = Path(working_dir) if working_dir else Path.cwd()
+    memory_file = base / _RELAY_DIR / _MEMORY_FILENAME
+    try:
+        if memory_file.is_file():
+            content = memory_file.read_text(encoding="utf-8")
+            logger.debug("Loaded user memory from %s (%d chars)", memory_file, len(content))
+            return content
+    except OSError as exc:
+        logger.warning("Failed to read user memory: %s", exc)
+    return ""
 
 
 # ==============================================================================
@@ -116,7 +147,7 @@ async def stream_response(
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    context = AgentContext()
+    context = AgentContext(user_memory=_load_user_memory())
     stats = _TurnStats()
     current_input = input_value
 

@@ -3,8 +3,13 @@
 Two backends:
 
 - **SQLite** (default): Persists conversation threads to a local
-  ``.relay/checkpoints.db`` file.  Suitable for single-user CLI use.
-- **Memory**: In-memory only — useful for testing or ephemeral sessions.
+  ``.relay/checkpoints.db`` file via ``IndexedAsyncSqliteSaver``.
+  Includes automatic message indexing for fast thread/history queries.
+- **Memory**: In-memory ``MemoryCheckpointer`` — useful for testing
+  or ephemeral sessions.
+
+Both backends implement :class:`relay.checkpointer.base.BaseCheckpointer`
+so the CLI can call ``get_threads()``, ``get_history()``, etc.
 
 Usage::
 
@@ -15,14 +20,13 @@ Usage::
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from relay.checkpointer.base import BaseCheckpointer
+from relay.checkpointer.impl.memory import MemoryCheckpointer
+from relay.checkpointer.impl.sqlite import IndexedAsyncSqliteSaver
 
 # Default storage directory, relative to the working directory.
 _RELAY_DIR = ".relay"
@@ -66,7 +70,7 @@ async def create_checkpointer(
     *,
     backend: str = "sqlite",
     working_dir: str | None = None,
-) -> AsyncIterator[BaseCheckpointSaver]:
+) -> AsyncIterator[BaseCheckpointer]:
     """Create a checkpointer as an async context manager.
 
     Parameters
@@ -78,10 +82,9 @@ async def create_checkpointer(
         Defaults to ``os.getcwd()``.
     """
     if backend == "memory":
-        yield MemorySaver()
+        yield MemoryCheckpointer()
         return
 
     db_path = _ensure_db_path(working_dir)
-    async with AsyncSqliteSaver.from_conn_string(db_path) as saver:
-        await saver.setup()
+    async with IndexedAsyncSqliteSaver.create(connection_string=db_path) as saver:
         yield saver

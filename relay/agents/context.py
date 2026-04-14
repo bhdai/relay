@@ -19,6 +19,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from relay.configs.approval import ApprovalMode
+
 
 class AgentContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -31,6 +33,7 @@ class AgentContext(BaseModel):
     current_date_time_zoned: str = Field(
         default_factory=lambda: datetime.now().astimezone().isoformat()
     )
+    approval_mode: ApprovalMode = ApprovalMode.SEMI_ACTIVE
     user_memory: str = ""
     tool_output_max_tokens: int = 10_000
     input_cost_per_mtok: float = 0.0

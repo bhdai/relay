@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from langchain.agents import create_agent
 
 from relay.middlewares import (
+    CompressToolOutputMiddleware,
     PendingToolResultMiddleware,
     ReturnDirectMiddleware,
     TokenCostMiddleware,
@@ -68,8 +69,15 @@ def create_react_agent(
         ReturnDirectMiddleware(),
     ]
 
+    # Group 4: wrapToolCall — wraps tool execution.
+    # CompressToolOutputMiddleware intercepts large tool outputs and
+    # stores them in virtual files to avoid token budget overruns.
+    wrap_tool_call: list[AgentMiddleware[Any, Any]] = [
+        CompressToolOutputMiddleware(model),
+    ]
+
     middlewares: list[AgentMiddleware[Any, Any]] = (
-        dynamic_prompt + after_model + before_agent + before_model
+        dynamic_prompt + after_model + before_agent + before_model + wrap_tool_call
     )
 
     return create_agent(
