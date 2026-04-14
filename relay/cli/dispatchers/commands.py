@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from relay.cli.ui.renderer import console, render_cost_summary, render_error, render_info
 
 
@@ -40,8 +38,8 @@ def dispatch_command(command: str, session: "Session") -> bool:  # noqa: F821
         return False
 
     if cmd == "/new":
-        session.threads.record(session.thread_id)
-        session.thread_id = str(uuid4())
+        session.threads.record(session.context.thread_id)
+        session.context.new_thread()
         render_info("New thread started.")
         return False
 
@@ -51,9 +49,9 @@ def dispatch_command(command: str, session: "Session") -> bool:  # noqa: F821
 
     if cmd == "/cost":
         render_cost_summary(
-            session.total_input_tokens,
-            session.total_output_tokens,
-            session.total_cost,
+            session.context.total_input_tokens,
+            session.context.total_output_tokens,
+            session.context.total_cost,
         )
         return False
 
