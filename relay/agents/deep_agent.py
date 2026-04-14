@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from relay.agents.react_agent import create_react_agent
-from relay.tools.subagents.task import SubAgentConfig, create_task_tool
+from relay.tools.subagents.task import SubAgentRuntime, create_task_tool
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -27,7 +27,7 @@ def create_deep_agent(
     model: BaseChatModel,
     tools: list[BaseTool],
     prompt: str,
-    subagent_configs: list[SubAgentConfig] | None = None,
+    subagent_configs: list[SubAgentRuntime] | None = None,
     state_schema: type[AgentState] | None = None,
     context_schema: type[AgentContext] | None = None,
     checkpointer: BaseCheckpointSaver | None = None,

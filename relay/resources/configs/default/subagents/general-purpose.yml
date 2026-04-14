@@ -1,0 +1,12 @@
+name: general-purpose
+description: "General-purpose agent for complex, multi-step tasks that require research, analysis, and synthesis. Use this when you need to handle tasks that involve multiple searches, gathering information from various sources, or autonomous multi-step workflows."
+prompt:
+  - prompts/subagents/general-purpose.md
+  - prompts/suffixes/environments.md
+llm: default
+recursion_limit: 100
+tools:
+  patterns:
+    - impl:*:*
+    - internal:*:*
+  output_max_tokens: 10000

@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from relay.agents.context import AgentContext
 from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
-from relay.tools.subagents.task import SubAgentConfig
+from relay.tools.subagents.task import SubAgentRuntime
 
 
 @tool
@@ -32,13 +32,13 @@ class TestCreateDeepAgent:
 
     def test_returns_compiled_graph_with_subagents(self):
         llm = MagicMock()
-        explorer = SubAgentConfig(
+        explorer = SubAgentRuntime(
             name="explorer",
             description="Read-only investigation.",
             tools=[_noop_tool],
             prompt="Explorer prompt.",
         )
-        worker = SubAgentConfig(
+        worker = SubAgentRuntime(
             name="worker",
             description="Multi-step execution.",
             tools=[_noop_tool],
