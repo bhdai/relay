@@ -138,6 +138,20 @@ class Initializer:
 
         return graph, cleanup
 
+    async def resolve_llm_metadata(
+        self,
+        *,
+        agent_name: str | None = None,
+    ) -> tuple[str, float, float]:
+        """Resolve the active LLM label and pricing for the current session."""
+        if self.registry is not None:
+            agent = await self.registry.get_agent(agent_name)
+            return await self.factory.resolve_llm_metadata(
+                configured_llm_name=agent.llm,
+            )
+
+        return await self.factory.resolve_llm_metadata()
+
     @asynccontextmanager
     async def get_graph(
         self,

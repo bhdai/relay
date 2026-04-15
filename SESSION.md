@@ -55,3 +55,14 @@
   use todo-oriented tools it does not have. The config-driven path uses the
   dedicated prompt files under `relay/resources/configs/default/prompts/` and
   does not have this mismatch.
+- Delegated subagents currently stream only `updates` inside
+  `relay/tools/subagents/task.py`, so subagent assistant text chunks are never
+  forwarded to the parent CLI. The user only sees structured tool activity plus
+  the final synthesized tool result.
+- `relay/cli/core/streaming.py` and `relay/cli/ui/renderer.py` reduce assistant
+  output to plain text rendering and do not preserve provider-native
+  `thinking`/`reasoning` blocks or merged `AIMessage` objects the way the
+  langrepl reference implementation does.
+- `relay/cli/core/streaming.py` only renders an update-path `AIMessage` when no
+  prior assistant text has been collected for the turn, so later narration
+  phases can be suppressed even outside the subagent path.

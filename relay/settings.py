@@ -67,8 +67,13 @@ class RateLimitSettings(BaseSettings):
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LLM__")
 
+    provider: str = "openai"
     model: str = "gpt-4.1-mini"
-    openai_api_key: SecretStr
+    openai_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
+    max_tokens: int = 10000
+    temperature: float = 0.1
+    streaming: bool = True
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
 

@@ -79,6 +79,13 @@ class Session:
 
     async def start(self) -> None:
         """Run the REPL until the user exits."""
+        resolved_model, input_cost, output_cost = await self._initializer.resolve_llm_metadata(
+            agent_name=self.context.agent,
+        )
+        self.context.model = resolved_model
+        self.context.input_cost_per_mtok = input_cost
+        self.context.output_cost_per_mtok = output_cost
+
         async with self._initializer.get_graph(
             backend=self.context.backend,
             working_dir=self.context.working_dir,

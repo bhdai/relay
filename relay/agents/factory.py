@@ -19,12 +19,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain_core.rate_limiters import InMemoryRateLimiter
-from langchain_openai import ChatOpenAI
-
 from relay.agents.context import AgentContext
 from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
+from relay.configs.llm import LLMConfig, LLMProvider
+from relay.llms.factory import LLMFactory
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
 from relay.settings import get_settings
 from relay.tools.factory import ToolFactory
@@ -146,47 +145,83 @@ class AgentFactory:
         registry: ConfigRegistry | None = None,
         tool_factory: ToolFactory | None = None,
         skill_factory: SkillFactory | None = None,
+        llm_factory: LLMFactory | None = None,
     ) -> None:
         self._model = model
         self._model_name = model_name
         self._registry = registry
         self._tool_factory = tool_factory or ToolFactory()
         self._skill_factory = skill_factory
+        self._llm_factory = llm_factory or LLMFactory(get_settings())
 
     # ------------------------------------------------------------------
     # LLM
     # ------------------------------------------------------------------
 
-    def _resolve_model_name(self, configured_model_name: str | None = None) -> str:
-        """Resolve CLI override, agent config, and env default into one name."""
-        if self._model_name:
-            return self._model_name
-        if configured_model_name and configured_model_name != "default":
-            return configured_model_name
+    def _build_default_llm_config(self, *, model_name: str | None = None) -> LLMConfig:
+        """Construct the env-backed default LLM config."""
         settings = get_settings()
-        return settings.llm.model
+        llm_settings = settings.llm
+        rate_settings = settings.rate_limit
+        provider = LLMProvider(llm_settings.provider)
+        resolved_model_name = model_name or llm_settings.model
 
-    def _get_model(self, *, model_name: str | None = None) -> BaseChatModel:
-        """Return the provided model or create one from settings.
+        return LLMConfig(
+            provider=provider,
+            model=resolved_model_name,
+            alias=resolved_model_name,
+            max_tokens=llm_settings.max_tokens,
+            temperature=llm_settings.temperature,
+            streaming=llm_settings.streaming,
+            rate_config={
+                "requests_per_second": rate_settings.requests_per_second,
+                "check_every_n_seconds": rate_settings.check_every_n_seconds,
+                "max_bucket_size": rate_settings.max_bucket_size,
+            },
+            input_cost_per_mtok=llm_settings.input_cost_per_mtok,
+            output_cost_per_mtok=llm_settings.output_cost_per_mtok,
+        )
 
-        When constructing from settings a shared ``InMemoryRateLimiter``
-        is attached so that the coordinator and all its subagents (which
-        share the same model instance) are collectively throttled.
-        """
+    def _model_from_config(self, llm_config: LLMConfig | None) -> BaseChatModel:
+        """Instantiate a model from a resolved LLM config."""
         if self._model is not None:
             return self._model
-        settings = get_settings()
-        rl = settings.rate_limit
-        resolved_model_name = self._resolve_model_name(model_name)
-        rate_limiter = InMemoryRateLimiter(
-            requests_per_second=rl.requests_per_second,
-            check_every_n_seconds=rl.check_every_n_seconds,
-            max_bucket_size=rl.max_bucket_size,
+
+        return self._llm_factory.create(llm_config or self._build_default_llm_config())
+
+    async def _resolve_llm_config(
+        self,
+        *,
+        configured_llm_name: str | None = None,
+    ) -> LLMConfig:
+        """Resolve CLI override, config alias, and env default into one config."""
+        selected_name = self._model_name or configured_llm_name or "default"
+
+        if self._registry is not None and selected_name != "default":
+            llm_config = await self._registry.get_llm(selected_name)
+            if llm_config is not None:
+                return llm_config
+
+            return self._build_default_llm_config(model_name=selected_name)
+
+        if selected_name != "default":
+            return self._build_default_llm_config(model_name=selected_name)
+
+        return self._build_default_llm_config()
+
+    async def resolve_llm_metadata(
+        self,
+        *,
+        configured_llm_name: str | None = None,
+    ) -> tuple[str, float, float]:
+        """Resolve the active LLM label and pricing for CLI session state."""
+        llm_config = await self._resolve_llm_config(
+            configured_llm_name=configured_llm_name,
         )
-        return ChatOpenAI(
-            model=resolved_model_name,
-            api_key=settings.llm.openai_api_key,
-            rate_limiter=rate_limiter,
+        return (
+            llm_config.alias,
+            llm_config.input_cost_per_mtok or 0.0,
+            llm_config.output_cost_per_mtok or 0.0,
         )
 
     # ------------------------------------------------------------------
@@ -307,6 +342,7 @@ class AgentFactory:
     def _resolve_subagent(
         self,
         decl: DeclSubAgentConfig,
+        llm_config: LLMConfig | None = None,
         mcp_tools: dict[str, BaseTool] | None = None,
         mcp_module_map: dict[str, str] | None = None,
     ) -> SubAgentRuntime:
@@ -325,6 +361,7 @@ class AgentFactory:
             description=decl.description,
             tools=_prepare_tools(tools),
             prompt=decl.prompt if isinstance(decl.prompt, str) else "",
+            llm_config=llm_config,
             recursion_limit=decl.recursion_limit,
         )
 
@@ -440,12 +477,14 @@ class AgentFactory:
         -------
         CompiledStateGraph
         """
-        model = self._get_model()
+        llm_config = self._build_default_llm_config(model_name=self._model_name)
+        model = self._model_from_config(llm_config)
         return create_deep_agent(
             model=model,
             tools=self._coordinator_tools(),
             prompt=COORDINATOR_PROMPT,
             subagent_configs=self._subagent_configs(),
+            subagent_model_provider=self._model_from_config,
             state_schema=AgentState,
             context_schema=AgentContext,
             checkpointer=checkpointer,
@@ -530,18 +569,25 @@ class AgentFactory:
                 subagent_runtimes.append(
                     self._resolve_subagent(
                         sa_decl,
+                        llm_config=await self._resolve_llm_config(
+                            configured_llm_name=sa_decl.llm,
+                        ),
                         mcp_tools=mcp_tools_dict,
                         mcp_module_map=mcp_module_map,
                     )
                 )
 
-        model = self._get_model(model_name=agent_cfg.llm)
+        coordinator_llm_config = await self._resolve_llm_config(
+            configured_llm_name=agent_cfg.llm,
+        )
+        model = self._model_from_config(coordinator_llm_config)
 
         return create_deep_agent(
             model=model,
             tools=coordinator_tools,
             prompt=prompt,
             subagent_configs=subagent_runtimes or None,
+            subagent_model_provider=self._model_from_config,
             state_schema=AgentState,
             context_schema=AgentContext,
             checkpointer=checkpointer,

@@ -1,0 +1,18 @@
+- alias: gpt-4.1-mini
+  provider: openai
+  model: gpt-4.1-mini
+  max_tokens: 10000
+  temperature: 0.1
+  input_cost_per_mtok: 0.4
+  output_cost_per_mtok: 1.6
+
+- alias: gpt-5-mini-thinking
+  provider: openai
+  model: gpt-5-mini-2025-08-07
+  max_tokens: 10000
+  temperature: 0.1
+  input_cost_per_mtok: 0.25
+  output_cost_per_mtok: 2.0
+  extended_reasoning:
+    effort: medium
+    summary: auto

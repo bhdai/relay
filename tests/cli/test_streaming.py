@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from unittest.mock import call
 from unittest.mock import patch
 
 import pytest
@@ -24,8 +25,8 @@ class _FakeGraph:
 
 
 @pytest.mark.asyncio
-async def test_stream_response_extracts_text_from_chunk_blocks(capsys) -> None:
-    """Chunk content blocks should be rendered like plain text chunks."""
+async def test_stream_response_extracts_text_from_chunk_blocks() -> None:
+    """Chunk content blocks should render as a finalized assistant message."""
     graph = _FakeGraph(
         [
             (
@@ -38,10 +39,13 @@ async def test_stream_response_extracts_text_from_chunk_blocks(capsys) -> None:
         ]
     )
 
-    stats = await stream_response(graph, {"messages": []}, thread_id="thread-1")
+    with patch("relay.cli.core.streaming.render_assistant_message") as render_message:
+        stats = await stream_response(graph, {"messages": []}, thread_id="thread-1")
 
     assert stats.collected_text == "Hello"
-    assert capsys.readouterr().out == "Hello"
+    rendered = render_message.call_args.args[0]
+    assert isinstance(rendered, AIMessage)
+    assert rendered.content == [{"type": "text", "text": "Hello"}]
 
 
 @pytest.mark.asyncio
@@ -64,7 +68,9 @@ async def test_stream_response_renders_final_ai_message_when_no_chunks() -> None
     with patch("relay.cli.core.streaming.render_assistant_message") as render_message:
         stats = await stream_response(graph, {"messages": []}, thread_id="thread-1")
 
-    render_message.assert_called_once_with("Final answer")
+    rendered = render_message.call_args.args[0]
+    assert isinstance(rendered, AIMessage)
+    assert rendered.content == [{"type": "text", "text": "Final answer"}]
     assert stats.collected_text == "Final answer"
 
 
@@ -88,7 +94,7 @@ async def test_stream_response_passes_pricing_into_agent_context() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_response_renders_custom_subagent_updates() -> None:
-    """Custom stream events should surface delegated subagent activity."""
+    """Custom stream events should surface delegated subagent narration and tools."""
     graph = _FakeGraph(
         [
             (
@@ -97,6 +103,14 @@ async def test_stream_response_renders_custom_subagent_updates() -> None:
                     "relay_event": "subagent_start",
                     "subagent": "explorer",
                     "description": "Inspect the repository",
+                },
+            ),
+            (
+                "custom",
+                {
+                    "relay_event": "subagent_message",
+                    "subagent": "explorer",
+                    "message": AIMessageChunk(content=[{"type": "text", "text": "Inspecting files"}]),
                 },
             ),
             (
@@ -127,15 +141,81 @@ async def test_stream_response_renders_custom_subagent_updates() -> None:
 
     with (
         patch("relay.cli.core.streaming.render_info") as render_info,
+        patch("relay.cli.core.streaming.render_assistant_message") as render_message,
         patch("relay.cli.core.streaming.render_tool_call") as render_tool_call,
     ):
         await stream_response(graph, {"messages": []}, thread_id="thread-1")
 
     render_info.assert_called_once_with("  ↳ explorer: Inspect the repository")
+    rendered = render_message.call_args.args[0]
+    assert isinstance(rendered, AIMessage)
+    assert rendered.content == [{"type": "text", "text": "Inspecting files"}]
     render_tool_call.assert_called_once_with(
         "read_file",
         {"file_path": "relay/main.py"},
         indent_level=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_response_renders_multiple_assistant_phases_in_one_turn() -> None:
+    """Later assistant messages should still render after earlier streamed text."""
+    graph = _FakeGraph(
+        [
+            (
+                "messages",
+                (
+                    AIMessageChunk(content=[{"type": "text", "text": "Planning next step"}]),
+                    {},
+                ),
+            ),
+            (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "name": "read_file",
+                                        "args": {"file_path": "relay/main.py"},
+                                        "id": "call_123",
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            ),
+            (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [AIMessage(content=[{"type": "text", "text": "Done investigating"}])]
+                    }
+                },
+            ),
+        ]
+    )
+
+    with (
+        patch("relay.cli.core.streaming.render_assistant_message") as render_message,
+        patch("relay.cli.core.streaming.render_tool_call") as render_tool_call,
+    ):
+        await stream_response(graph, {"messages": []}, thread_id="thread-1")
+
+    assert render_message.call_count == 2
+    first_message = render_message.call_args_list[0].args[0]
+    second_message = render_message.call_args_list[1].args[0]
+    assert isinstance(first_message, AIMessage)
+    assert isinstance(second_message, AIMessage)
+    assert first_message.content == [{"type": "text", "text": "Planning next step"}]
+    assert second_message.content == [{"type": "text", "text": "Done investigating"}]
+    render_tool_call.assert_called_once_with(
+        "read_file",
+        {"file_path": "relay/main.py"},
+        indent_level=0,
     )
 
 
@@ -170,4 +250,4 @@ async def test_stream_response_supports_namespaced_events() -> None:
     with patch("relay.cli.core.streaming.render_tool_call") as render_tool_call:
         await stream_response(graph, {"messages": []}, thread_id="thread-1")
 
-    render_tool_call.assert_called_once_with("ls", {"path": "."}, indent_level=0)
+    render_tool_call.assert_called_once_with("ls", {"path": "."}, indent_level=1)

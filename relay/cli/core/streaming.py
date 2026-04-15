@@ -9,6 +9,7 @@ and re-enters the stream with ``Command(resume=...)``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -167,12 +168,16 @@ class _DisplayState:
     """Track structured output already rendered for the current turn."""
 
     __slots__ = (
+        "buffered_message_chunks",
+        "rendered_ai_messages",
         "rendered_tool_calls",
         "rendered_tool_errors",
         "announced_subagents",
     )
 
     def __init__(self) -> None:
+        self.buffered_message_chunks: dict[tuple[str, ...], list[AIMessageChunk]] = {}
+        self.rendered_ai_messages: set[str] = set()
         self.rendered_tool_calls: set[str] = set()
         self.rendered_tool_errors: set[str] = set()
         self.announced_subagents: set[str] = set()
@@ -218,6 +223,33 @@ def _tool_error_key(message: ToolMessage, *, fallback_index: int) -> str:
     return f"{message.name}:{message.content!r}:{fallback_index}"
 
 
+def _message_key(message: AIMessage, *, fallback_index: int) -> str:
+    """Build a stable dedupe key for rendered assistant messages."""
+    if message.id:
+        return str(message.id)
+
+    fingerprint = hashlib.sha256(
+        f"{message.content!r}:{getattr(message, 'tool_calls', None)!r}:{fallback_index}".encode()
+    ).hexdigest()
+    return fingerprint
+
+
+def _merge_message_chunks(chunks: list[AIMessageChunk]) -> AIMessage:
+    """Merge streamed chunks into a final AIMessage."""
+    merged = chunks[0]
+    for chunk in chunks[1:]:
+        merged = merged + chunk
+
+    return AIMessage(
+        content=merged.content,
+        additional_kwargs=merged.additional_kwargs,
+        response_metadata=merged.response_metadata,
+        tool_calls=merged.tool_calls,
+        id=merged.id,
+        name=merged.name,
+    )
+
+
 def _iter_node_outputs(update: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract node output payloads from a streamed update event."""
     if "messages" in update:
@@ -230,6 +262,72 @@ def _iter_node_outputs(update: dict[str, Any]) -> list[dict[str, Any]]:
     return outputs
 
 
+def _render_ai_message(
+    message: AIMessage,
+    *,
+    stats: _TurnStats,
+    display_state: _DisplayState,
+    indent_level: int = 0,
+    fallback_index: int = 0,
+) -> None:
+    """Render a full assistant message once per turn."""
+    text = _message_text(message.content)
+    if not text.strip():
+        return
+
+    message_key = _message_key(message, fallback_index=fallback_index)
+    if message_key in display_state.rendered_ai_messages:
+        return
+
+    display_state.rendered_ai_messages.add(message_key)
+    _close_open_text_line(stats)
+    render_assistant_message(message, indent_level=indent_level)
+    stats.collected_text += text
+
+
+def _buffer_message_chunk(
+    message: AIMessageChunk,
+    *,
+    display_namespace: tuple[str, ...],
+    display_state: _DisplayState,
+) -> None:
+    """Accumulate streamed assistant chunks until a stable render point."""
+    display_state.buffered_message_chunks.setdefault(display_namespace, []).append(message)
+
+
+def _finalize_buffered_message(
+    display_namespace: tuple[str, ...],
+    *,
+    stats: _TurnStats,
+    display_state: _DisplayState,
+) -> None:
+    """Render and clear any buffered assistant chunks for one namespace."""
+    chunks = display_state.buffered_message_chunks.pop(display_namespace, None)
+    if not chunks:
+        return
+
+    _render_ai_message(
+        _merge_message_chunks(chunks),
+        stats=stats,
+        display_state=display_state,
+        indent_level=len(display_namespace),
+    )
+
+
+def _finalize_all_buffered_messages(
+    *,
+    stats: _TurnStats,
+    display_state: _DisplayState,
+) -> None:
+    """Render any buffered assistant chunks that never received updates."""
+    for display_namespace in list(display_state.buffered_message_chunks):
+        _finalize_buffered_message(
+            display_namespace,
+            stats=stats,
+            display_state=display_state,
+        )
+
+
 def _handle_node_output(
     node_output: dict[str, Any],
     *,
@@ -240,6 +338,15 @@ def _handle_node_output(
     """Render a node update from the graph stream."""
     messages = node_output.get("messages", [])
     for index, msg in enumerate(messages):
+        if isinstance(msg, AIMessage):
+            _render_ai_message(
+                msg,
+                stats=stats,
+                display_state=display_state,
+                indent_level=indent_level,
+                fallback_index=index,
+            )
+
         if hasattr(msg, "tool_calls"):
             for tc in msg.tool_calls:
                 tool_key = _tool_call_key(tc, fallback_index=index)
@@ -288,7 +395,10 @@ def _handle_custom_event(
 
     event_type = chunk.get("relay_event")
     subagent = chunk.get("subagent") or "subagent"
-    indent_level = len(namespace) + 1
+    child_namespace_raw = chunk.get("namespace") or []
+    child_namespace = tuple(str(part) for part in child_namespace_raw)
+    display_namespace = (*namespace, "subagent", *child_namespace)
+    indent_level = len(display_namespace)
 
     if event_type == "subagent_start":
         description = str(chunk.get("description", "")).strip()
@@ -302,12 +412,28 @@ def _handle_custom_event(
         render_info(f"{prefix}↳ {subagent}: {description}")
         return
 
+    if event_type == "subagent_message":
+        message = chunk.get("message")
+        if isinstance(message, AIMessageChunk):
+            _buffer_message_chunk(
+                message,
+                display_namespace=display_namespace,
+                display_state=display_state,
+            )
+        return
+
     if event_type != "subagent_update":
         return
 
     update = chunk.get("update")
     if not isinstance(update, dict):
         return
+
+    _finalize_buffered_message(
+        display_namespace,
+        stats=stats,
+        display_state=display_state,
+    )
 
     for node_output in _iter_node_outputs(update):
         _handle_node_output(
@@ -388,12 +514,12 @@ async def stream_response(
                     continue
 
                 msg, _metadata = chunk
-                if isinstance(msg, AIMessageChunk) and msg.content:
-                    text = _message_text(msg.content)
-                    if text:
-                        print(text, end="", flush=True)
-                        stats.collected_text += text
-                        stats.line_open = not text.endswith("\n")
+                if isinstance(msg, AIMessageChunk):
+                    _buffer_message_chunk(
+                        msg,
+                        display_namespace=namespace,
+                        display_state=display_state,
+                    )
 
             # -- Node-level updates ("updates" mode) --
             elif mode == "updates":
@@ -414,21 +540,19 @@ async def stream_response(
                     break
 
                 # ---- Normal node output ----
+                _finalize_buffered_message(
+                    namespace,
+                    stats=stats,
+                    display_state=display_state,
+                )
+
                 for node_output in _iter_node_outputs(chunk):
                     _handle_node_output(
                         node_output,
                         stats=stats,
                         display_state=display_state,
+                        indent_level=len(namespace),
                     )
-
-                    messages = node_output.get("messages", [])
-                    for msg in messages:
-                        if isinstance(msg, AIMessage):
-                            text = _message_text(msg.content)
-                            if text and not stats.collected_text.strip():
-                                _close_open_text_line(stats)
-                                render_assistant_message(text)
-                                stats.collected_text = text
 
             elif mode == "custom":
                 _handle_custom_event(
@@ -439,6 +563,7 @@ async def stream_response(
                 )
 
         if not interrupted:
+            _finalize_all_buffered_messages(stats=stats, display_state=display_state)
             break
 
     return stats

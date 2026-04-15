@@ -1,11 +1,13 @@
 """Tests for relay.agents.factory."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.tools import tool as langchain_tool
 
 from relay.agents.factory import AgentFactory
+from relay.configs.registry import ConfigRegistry
 
 
 # ==============================================================================
@@ -57,13 +59,42 @@ class TestAgentFactory:
         """When no model is passed, the factory creates one from settings."""
         # Patch get_settings to avoid needing real env vars.
         mock_settings = MagicMock()
+        mock_settings.llm.provider = "openai"
         mock_settings.llm.model = "gpt-4.1-mini"
+        mock_settings.llm.max_tokens = 10000
+        mock_settings.llm.temperature = 0.1
+        mock_settings.llm.streaming = True
         mock_settings.llm.openai_api_key.get_secret_value.return_value = "sk-test"
+        mock_settings.llm.input_cost_per_mtok = 0.0
+        mock_settings.llm.output_cost_per_mtok = 0.0
+        mock_settings.rate_limit.requests_per_second = 5.0
+        mock_settings.rate_limit.check_every_n_seconds = 0.1
+        mock_settings.rate_limit.max_bucket_size = 10
         monkeypatch.setattr("relay.agents.factory.get_settings", lambda: mock_settings)
 
         factory = AgentFactory()
         graph = factory.create()
         assert callable(getattr(graph, "invoke", None))
+
+    @pytest.mark.asyncio
+    async def test_resolve_llm_metadata_uses_registry_alias(self, tmp_path: Path):
+        registry = ConfigRegistry(tmp_path)
+        await registry.ensure_config_dir()
+
+        factory = AgentFactory(registry=registry, model_name="haiku-4.5-thinking")
+        alias, input_cost, output_cost = await factory.resolve_llm_metadata()
+
+        assert alias == "haiku-4.5-thinking"
+        assert input_cost == 1.0
+        assert output_cost == 5.0
+
+    def test_model_from_config_uses_injected_model(self):
+        model = MagicMock()
+        factory = AgentFactory(model=model)
+
+        resolved = factory._model_from_config(None)
+
+        assert resolved is model
 
     def test_coordinator_tools_are_read_only(self):
         """Coordinator tool surface does not include mutating FS or terminal."""
@@ -380,51 +411,49 @@ class TestFilterMcpTools:
 
 
 class TestRuntimeModelResolution:
-    def test_cli_model_override_takes_precedence(self, monkeypatch):
-        seen: dict[str, object] = {}
-
+    @pytest.mark.asyncio
+    async def test_cli_model_override_takes_precedence(self, monkeypatch):
         mock_settings = MagicMock()
+        mock_settings.llm.provider = "openai"
         mock_settings.llm.model = "gpt-4.1-mini"
-        mock_settings.llm.openai_api_key = "sk-test"
+        mock_settings.llm.max_tokens = 10000
+        mock_settings.llm.temperature = 0.1
+        mock_settings.llm.streaming = True
+        mock_settings.llm.input_cost_per_mtok = 0.0
+        mock_settings.llm.output_cost_per_mtok = 0.0
         mock_settings.rate_limit.requests_per_second = 5.0
         mock_settings.rate_limit.check_every_n_seconds = 0.1
         mock_settings.rate_limit.max_bucket_size = 10
 
-        def _fake_chat_openai(*, model, api_key, rate_limiter):
-            seen["model"] = model
-            seen["api_key"] = api_key
-            seen["rate_limiter"] = rate_limiter
-            return MagicMock()
-
         monkeypatch.setattr("relay.agents.factory.get_settings", lambda: mock_settings)
-        monkeypatch.setattr("relay.agents.factory.ChatOpenAI", _fake_chat_openai)
 
         factory = AgentFactory(model_name="gpt-5.1-codex-mini")
-        factory._get_model(model_name="default")
+        llm_config = await factory._resolve_llm_config(configured_llm_name="default")
 
-        assert seen["model"] == "gpt-5.1-codex-mini"
+        assert llm_config.model == "gpt-5.1-codex-mini"
 
-    def test_agent_llm_is_used_when_not_default(self, monkeypatch):
-        seen: dict[str, object] = {}
-
+    @pytest.mark.asyncio
+    async def test_agent_llm_is_used_when_not_default(self, monkeypatch):
         mock_settings = MagicMock()
+        mock_settings.llm.provider = "openai"
         mock_settings.llm.model = "gpt-4.1-mini"
-        mock_settings.llm.openai_api_key = "sk-test"
+        mock_settings.llm.max_tokens = 10000
+        mock_settings.llm.temperature = 0.1
+        mock_settings.llm.streaming = True
+        mock_settings.llm.input_cost_per_mtok = 0.0
+        mock_settings.llm.output_cost_per_mtok = 0.0
         mock_settings.rate_limit.requests_per_second = 5.0
         mock_settings.rate_limit.check_every_n_seconds = 0.1
         mock_settings.rate_limit.max_bucket_size = 10
 
-        def _fake_chat_openai(*, model, api_key, rate_limiter):
-            seen["model"] = model
-            return MagicMock()
-
         monkeypatch.setattr("relay.agents.factory.get_settings", lambda: mock_settings)
-        monkeypatch.setattr("relay.agents.factory.ChatOpenAI", _fake_chat_openai)
 
         factory = AgentFactory()
-        factory._get_model(model_name="gpt-5.1-codex-mini")
+        llm_config = await factory._resolve_llm_config(
+            configured_llm_name="gpt-5.1-codex-mini"
+        )
 
-        assert seen["model"] == "gpt-5.1-codex-mini"
+        assert llm_config.model == "gpt-5.1-codex-mini"
 
 
 class TestConfiguredToolResolution:
