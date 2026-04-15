@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_openai import ChatOpenAI
 
 from relay.agents.context import AgentContext
@@ -155,13 +156,25 @@ class AgentFactory:
     # ------------------------------------------------------------------
 
     def _get_model(self) -> BaseChatModel:
-        """Return the provided model or create one from settings."""
+        """Return the provided model or create one from settings.
+
+        When constructing from settings a shared ``InMemoryRateLimiter``
+        is attached so that the coordinator and all its subagents (which
+        share the same model instance) are collectively throttled.
+        """
         if self._model is not None:
             return self._model
         settings = get_settings()
+        rl = settings.rate_limit
+        rate_limiter = InMemoryRateLimiter(
+            requests_per_second=rl.requests_per_second,
+            check_every_n_seconds=rl.check_every_n_seconds,
+            max_bucket_size=rl.max_bucket_size,
+        )
         return ChatOpenAI(
             model=settings.llm.model,
             api_key=settings.llm.openai_api_key,
+            rate_limiter=rate_limiter,
         )
 
     # ------------------------------------------------------------------
