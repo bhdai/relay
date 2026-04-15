@@ -44,7 +44,7 @@ def render_assistant_message(content: str) -> None:
     console.print(md)
 
 
-def render_tool_call(name: str, args: dict) -> None:
+def render_tool_call(name: str, args: dict, *, indent_level: int = 0) -> None:
     """Show a tool invocation notification.
 
     Format::
@@ -52,8 +52,9 @@ def render_tool_call(name: str, args: dict) -> None:
         ⚙ tool_name
           key: value (truncated)
     """
+    prefix = "  " * indent_level
     header = Text(
-        f"  ⚙ {name}",
+        f"{prefix}  ⚙ {name}",
         style=console.get_style("indicator", bold=True),
     )
     console.print(header)
@@ -61,13 +62,14 @@ def render_tool_call(name: str, args: dict) -> None:
         display = str(value)
         if len(display) > 200:
             display = display[:197] + "..."
-        console.print(f"    {key}: {display}", style="muted")
+        console.print(f"{prefix}    {key}: {display}", style="muted")
 
 
-def render_tool_error(name: str, error: str) -> None:
+def render_tool_error(name: str, error: str, *, indent_level: int = 0) -> None:
     """Show a tool error result."""
+    prefix = "  " * indent_level
     console.print(
-        f"  ✗ {name}: {error}",
+        f"{prefix}  ✗ {name}: {error}",
         style=console.get_style("error", bold=True),
     )
 

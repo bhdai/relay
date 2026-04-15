@@ -46,12 +46,12 @@
   `InterruptHandler` class duplicates the same logic. Eventually
   `stream_response` should delegate to `InterruptHandler` to remove the
   duplication.
-- The `task` subagent tool hits `GraphRecursionError` (recursion limit of 100)
-  when invoked by the `explorer` subagent. The error propagates as a
-  `ToolException` and crashes the REPL. The subagent graph needs a higher
-  recursion limit or the `task` tool should catch `GraphRecursionError`
-  and return a graceful failure message.
 - Relay's built-in `InMemoryRateLimiter` is request-based (`requests_per_second`)
   but the OpenAI failure mode seen in the CLI is token-per-minute. It can slow
   request bursts, but it does not estimate prompt size or prevent large-tool-
  output turns from hitting provider TPM limits.
+- The hardcoded fallback agent path (`AgentFactory.create()`) still uses the
+  generic prompt aliases from `relay/prompt.py`, which instruct the explorer to
+  use todo-oriented tools it does not have. The config-driven path uses the
+  dedicated prompt files under `relay/resources/configs/default/prompts/` and
+  does not have this mismatch.
