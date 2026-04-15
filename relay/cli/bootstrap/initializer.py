@@ -57,6 +57,7 @@ class Initializer:
         factory: AgentFactory | None = None,
         registry: ConfigRegistry | None = None,
         working_dir: Path | None = None,
+        model_name: str | None = None,
         mcp_factory: MCPFactory | None = None,
         skill_factory: SkillFactory | None = None,
     ) -> None:
@@ -69,6 +70,7 @@ class Initializer:
         self.mcp_factory = mcp_factory or MCPFactory()
         self.factory = factory or AgentFactory(
             registry=registry,
+            model_name=model_name,
             skill_factory=self.skill_factory,
         )
 
@@ -85,6 +87,9 @@ class Initializer:
         callable that the caller must await when done (closes MCP
         sessions and the checkpointer).
         """
+        if self.registry is not None:
+            await self.registry.get_agent(agent_name)
+
         checkpointer_ctx = create_checkpointer(
             backend=backend,
             working_dir=working_dir,

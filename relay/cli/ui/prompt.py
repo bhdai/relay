@@ -101,7 +101,12 @@ class InteractivePrompt:
     def _get_bottom_toolbar(self) -> HTML:
         if self._show_quit_message:
             return HTML("<muted> Ctrl+C again to quit</muted>")
-        return create_bottom_toolbar("0.1.0", self.context.thread_id)
+        return create_bottom_toolbar(
+            "0.1.0",
+            self.context.thread_id,
+            agent_name=self.context.agent,
+            model_name=self.context.model,
+        )
 
     def _reset_ctrl_c(self) -> None:
         self._last_ctrl_c_time = None

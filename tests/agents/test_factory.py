@@ -377,3 +377,70 @@ class TestFilterMcpTools:
     def test_filter_mcp_tools_none_dict(self):
         result = AgentFactory._filter_mcp_tools(None, ["srv:*"], None)
         assert result == []
+
+
+class TestRuntimeModelResolution:
+    def test_cli_model_override_takes_precedence(self, monkeypatch):
+        seen: dict[str, object] = {}
+
+        mock_settings = MagicMock()
+        mock_settings.llm.model = "gpt-4.1-mini"
+        mock_settings.llm.openai_api_key = "sk-test"
+        mock_settings.rate_limit.requests_per_second = 5.0
+        mock_settings.rate_limit.check_every_n_seconds = 0.1
+        mock_settings.rate_limit.max_bucket_size = 10
+
+        def _fake_chat_openai(*, model, api_key, rate_limiter):
+            seen["model"] = model
+            seen["api_key"] = api_key
+            seen["rate_limiter"] = rate_limiter
+            return MagicMock()
+
+        monkeypatch.setattr("relay.agents.factory.get_settings", lambda: mock_settings)
+        monkeypatch.setattr("relay.agents.factory.ChatOpenAI", _fake_chat_openai)
+
+        factory = AgentFactory(model_name="gpt-5.1-codex-mini")
+        factory._get_model(model_name="default")
+
+        assert seen["model"] == "gpt-5.1-codex-mini"
+
+    def test_agent_llm_is_used_when_not_default(self, monkeypatch):
+        seen: dict[str, object] = {}
+
+        mock_settings = MagicMock()
+        mock_settings.llm.model = "gpt-4.1-mini"
+        mock_settings.llm.openai_api_key = "sk-test"
+        mock_settings.rate_limit.requests_per_second = 5.0
+        mock_settings.rate_limit.check_every_n_seconds = 0.1
+        mock_settings.rate_limit.max_bucket_size = 10
+
+        def _fake_chat_openai(*, model, api_key, rate_limiter):
+            seen["model"] = model
+            return MagicMock()
+
+        monkeypatch.setattr("relay.agents.factory.get_settings", lambda: mock_settings)
+        monkeypatch.setattr("relay.agents.factory.ChatOpenAI", _fake_chat_openai)
+
+        factory = AgentFactory()
+        factory._get_model(model_name="gpt-5.1-codex-mini")
+
+        assert seen["model"] == "gpt-5.1-codex-mini"
+
+
+class TestConfiguredToolResolution:
+    def test_resolve_tools_matches_logical_filesystem_module(self):
+        factory = AgentFactory(model=MagicMock())
+
+        tools = factory._resolve_tools_from_patterns(
+            [
+                "impl:file_system:read_file",
+                "impl:file_system:grep_files",
+                "internal:todo:write_todos",
+            ]
+        )
+
+        assert {tool.name for tool in tools} == {
+            "read_file",
+            "grep_files",
+            "write_todos",
+        }

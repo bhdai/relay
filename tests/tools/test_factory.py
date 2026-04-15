@@ -25,17 +25,15 @@ class TestToolFactory:
         assert "read_todos" in names
 
     def test_impl_module_map_has_correct_modules(self):
-        """Impl module map records the source module for each tool."""
+        """Impl module map uses the logical module names expected by YAML."""
         factory = ToolFactory()
         module_map = factory.get_impl_module_map()
 
-        # Filesystem tools come from individual submodules (rw, glob, etc.).
-        assert module_map["read_file"] == "rw"
-        assert module_map["glob_files"] == "glob"
-        assert module_map["grep_files"] == "grep"
-        assert module_map["ls"] == "ls"
+        assert module_map["read_file"] == "file_system"
+        assert module_map["glob_files"] == "file_system"
+        assert module_map["grep_files"] == "file_system"
+        assert module_map["ls"] == "file_system"
 
-        # Terminal and web are single-module.
         assert module_map["run_command"] == "terminal"
         assert module_map["fetch_web_content"] == "web"
 

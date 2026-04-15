@@ -142,11 +142,13 @@ class AgentFactory:
         self,
         *,
         model: BaseChatModel | None = None,
+        model_name: str | None = None,
         registry: ConfigRegistry | None = None,
         tool_factory: ToolFactory | None = None,
         skill_factory: SkillFactory | None = None,
     ) -> None:
         self._model = model
+        self._model_name = model_name
         self._registry = registry
         self._tool_factory = tool_factory or ToolFactory()
         self._skill_factory = skill_factory
@@ -155,7 +157,16 @@ class AgentFactory:
     # LLM
     # ------------------------------------------------------------------
 
-    def _get_model(self) -> BaseChatModel:
+    def _resolve_model_name(self, configured_model_name: str | None = None) -> str:
+        """Resolve CLI override, agent config, and env default into one name."""
+        if self._model_name:
+            return self._model_name
+        if configured_model_name and configured_model_name != "default":
+            return configured_model_name
+        settings = get_settings()
+        return settings.llm.model
+
+    def _get_model(self, *, model_name: str | None = None) -> BaseChatModel:
         """Return the provided model or create one from settings.
 
         When constructing from settings a shared ``InMemoryRateLimiter``
@@ -166,13 +177,14 @@ class AgentFactory:
             return self._model
         settings = get_settings()
         rl = settings.rate_limit
+        resolved_model_name = self._resolve_model_name(model_name)
         rate_limiter = InMemoryRateLimiter(
             requests_per_second=rl.requests_per_second,
             check_every_n_seconds=rl.check_every_n_seconds,
             max_bucket_size=rl.max_bucket_size,
         )
         return ChatOpenAI(
-            model=settings.llm.model,
+            model=resolved_model_name,
             api_key=settings.llm.openai_api_key,
             rate_limiter=rate_limiter,
         )
@@ -428,8 +440,9 @@ class AgentFactory:
         -------
         CompiledStateGraph
         """
+        model = self._get_model()
         return create_deep_agent(
-            model=self._get_model(),
+            model=model,
             tools=self._coordinator_tools(),
             prompt=COORDINATOR_PROMPT,
             subagent_configs=self._subagent_configs(),
@@ -522,8 +535,10 @@ class AgentFactory:
                     )
                 )
 
+        model = self._get_model(model_name=agent_cfg.llm)
+
         return create_deep_agent(
-            model=self._get_model(),
+            model=model,
             tools=coordinator_tools,
             prompt=prompt,
             subagent_configs=subagent_runtimes or None,

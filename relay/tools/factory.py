@@ -54,25 +54,49 @@ class ToolFactory:
         self._impl_module_map: dict[str, str] = {}
         self._internal_module_map: dict[str, str] = {}
 
-        # Register impl tool groups.  The module name is derived from
-        # each tool's defining module (the last component of its
-        # ``__module__``).
-        for tool_group in [FILE_SYSTEM_TOOLS, TERMINAL_TOOLS, WEB_TOOLS]:
-            for t in tool_group:
-                func = getattr(t, "func", None) or getattr(t, "coroutine", None)
-                if func:
-                    module_name = func.__module__.split(".")[-1]
-                    self._impl_module_map[t.name] = module_name
-            self.impl_tools.extend(tool_group)
+        self._register_tools(
+            FILE_SYSTEM_TOOLS,
+            "file_system",
+            self.impl_tools,
+            self._impl_module_map,
+        )
+        self._register_tools(
+            TERMINAL_TOOLS,
+            "terminal",
+            self.impl_tools,
+            self._impl_module_map,
+        )
+        self._register_tools(
+            WEB_TOOLS,
+            "web",
+            self.impl_tools,
+            self._impl_module_map,
+        )
 
-        # Register internal tool groups.
-        for tool_group in [MEMORY_TOOLS, TODO_TOOLS]:
-            for t in tool_group:
-                func = getattr(t, "func", None) or getattr(t, "coroutine", None)
-                if func:
-                    module_name = func.__module__.split(".")[-1]
-                    self._internal_module_map[t.name] = module_name
-            self.internal_tools.extend(tool_group)
+        self._register_tools(
+            MEMORY_TOOLS,
+            "memory",
+            self.internal_tools,
+            self._internal_module_map,
+        )
+        self._register_tools(
+            TODO_TOOLS,
+            "todo",
+            self.internal_tools,
+            self._internal_module_map,
+        )
+
+    @staticmethod
+    def _register_tools(
+        tools: list[BaseTool],
+        module_name: str,
+        target_tools: list[BaseTool],
+        module_map: dict[str, str],
+    ) -> None:
+        """Register a tool group under the logical module name used in YAML."""
+        for tool in tools:
+            module_map[tool.name] = module_name
+        target_tools.extend(tools)
 
     def get_impl_tools(self) -> list[BaseTool]:
         """Return all implementation tools."""

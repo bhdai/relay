@@ -65,6 +65,22 @@ class TestEnsureConfigDir:
         # Should not overwrite or error.
         assert (config_dir / "marker.txt").read_text() == "existing"
 
+    async def test_backfills_missing_defaults_into_existing_partial_dir(
+        self, tmp_path: Path
+    ):
+        config_dir = tmp_path / ".relay"
+        config_dir.mkdir()
+        (config_dir / "checkpoints.db").write_text("")
+
+        registry = ConfigRegistry(tmp_path)
+        await registry.ensure_config_dir()
+
+        assert (config_dir / "checkpoints.db").exists()
+        assert (config_dir / "agents").is_dir()
+        assert (config_dir / "subagents").is_dir()
+        assert (config_dir / "agents" / "claude-style-coder.yml").is_file()
+        assert (config_dir / "agents" / "code-reviewer.yml").is_file()
+
 
 # ==============================================================================
 # load_subagents
@@ -229,6 +245,8 @@ class TestPackagedDefaults:
 
         assert len(agents.agents) >= 1
         assert len(subagents.subagents) >= 2
+        assert "claude-style-coder" in agents.agent_names
+        assert "code-reviewer" in agents.agent_names
 
         # Check the default agent has expected properties.
         default_agent = agents.get_default_agent()

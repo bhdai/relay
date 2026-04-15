@@ -74,13 +74,45 @@ class ConfigRegistry:
     # ==================================================================
 
     async def ensure_config_dir(self) -> None:
-        """Create ``.relay/`` from packaged defaults if it does not exist."""
-        if self.config_dir.exists():
+        template_dir = Path(str(files("relay.resources") / "configs" / "default"))
+
+        if not self.config_dir.exists():
+            await asyncio.to_thread(shutil.copytree, template_dir, self.config_dir)
+            logger.info("Created config directory from defaults: %s", self.config_dir)
             return
 
-        template_dir = Path(str(files("relay.resources") / "configs" / "default"))
-        await asyncio.to_thread(shutil.copytree, template_dir, self.config_dir)
-        logger.info("Created config directory from defaults: %s", self.config_dir)
+        copied_files = await asyncio.to_thread(
+            self._copy_missing_default_files,
+            template_dir,
+            self.config_dir,
+        )
+        if copied_files:
+            logger.info(
+                "Backfilled %d missing config files into %s",
+                copied_files,
+                self.config_dir,
+            )
+
+    @staticmethod
+    def _copy_missing_default_files(template_dir: Path, target_dir: Path) -> int:
+        """Copy only missing top-level default entries into an existing config dir."""
+        copied_files = 0
+
+        for source in template_dir.iterdir():
+            destination = target_dir / source.name
+
+            if destination.exists():
+                continue
+
+            if source.is_dir():
+                shutil.copytree(source, destination)
+                copied_files += sum(1 for child in source.rglob("*") if child.is_file())
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                copied_files += 1
+
+        return copied_files
 
     # ==================================================================
     # Subagent configs

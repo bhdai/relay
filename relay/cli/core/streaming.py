@@ -166,6 +166,7 @@ async def stream_response(
     input_value: Any,
     *,
     thread_id: str,
+    working_dir: str | None = None,
     input_cost_per_mtok: float = 0.0,
     output_cost_per_mtok: float = 0.0,
 ) -> _TurnStats:
@@ -188,7 +189,8 @@ async def stream_response(
     """
     config = {"configurable": {"thread_id": thread_id}}
     context = AgentContext(
-        user_memory=_load_user_memory(),
+        working_dir=working_dir or str(Path.cwd()),
+        user_memory=_load_user_memory(working_dir),
         input_cost_per_mtok=input_cost_per_mtok,
         output_cost_per_mtok=output_cost_per_mtok,
     )

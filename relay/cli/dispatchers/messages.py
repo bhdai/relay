@@ -106,6 +106,7 @@ class MessageDispatcher:
                 self.session.graph,
                 input_value,
                 thread_id=self.session.context.thread_id,
+                working_dir=self.session.context.working_dir,
                 input_cost_per_mtok=self.session.context.input_cost_per_mtok,
                 output_cost_per_mtok=self.session.context.output_cost_per_mtok,
             )
