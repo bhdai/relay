@@ -12,6 +12,7 @@ Langrepl equivalent:
 from __future__ import annotations
 
 import asyncio
+import re
 import signal
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,7 @@ from langgraph.types import Command
 
 from relay.cli.core.streaming import stream_response
 from relay.cli.handlers.interrupts import InterruptHandler
-from relay.cli.ui.renderer import render_cost_summary, render_info
+from relay.cli.ui.renderer import render_cost_summary, render_error, render_info
 
 if TYPE_CHECKING:
     from relay.cli.core.session import Session
@@ -45,21 +46,46 @@ class MessageDispatcher:
         Builds a ``HumanMessage``, streams the graph response, and
         accumulates token/cost data into ``session.context``.
         """
-        input_value = {"messages": [HumanMessage(content=content)]}
-        await self._run_stream(input_value)
+        try:
+            input_value = {"messages": [HumanMessage(content=content)]}
+            await self._run_stream(input_value)
+        except Exception as exc:
+            render_error(self._format_stream_error(exc))
 
     async def resume_from_interrupt(self, interrupts: list) -> None:
         """Prompt the user for each pending interrupt, then resume the graph.
 
         Does nothing if the user cancels the prompt.
         """
-        resume_value = await self.interrupt_handler.handle(interrupts)
-        if resume_value is not None:
-            await self._run_stream(Command(resume=resume_value))
+        try:
+            resume_value = await self.interrupt_handler.handle(interrupts)
+            if resume_value is not None:
+                await self._run_stream(Command(resume=resume_value))
+        except Exception as exc:
+            render_error(self._format_stream_error(exc))
 
     # ------------------------------------------------------------------
     # SIGINT handling
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_stream_error(exc: Exception) -> str:
+        """Convert provider exceptions into concise CLI-facing messages."""
+        message = str(exc).strip() or type(exc).__name__
+
+        if "Rate limit reached" not in message:
+            return message
+
+        wait_match = re.search(r"Please try again in ([0-9]+(?:\.[0-9]+)?)s", message)
+        requested_match = re.search(r"Requested ([0-9]+)", message)
+
+        parts = ["Rate limit reached from the model provider"]
+        if wait_match:
+            parts.append(f"retry in {wait_match.group(1)}s")
+        if requested_match:
+            parts.append(f"request wanted {requested_match.group(1)} tokens")
+
+        return "; ".join(parts) + "."
 
     def _sigint_handler(self, signum: int, frame: object) -> None:
         """First Ctrl+C cancels the stream; second falls through."""
@@ -80,6 +106,8 @@ class MessageDispatcher:
                 self.session.graph,
                 input_value,
                 thread_id=self.session.context.thread_id,
+                input_cost_per_mtok=self.session.context.input_cost_per_mtok,
+                output_cost_per_mtok=self.session.context.output_cost_per_mtok,
             )
         except asyncio.CancelledError:
             render_info("\n  (cancelled)")

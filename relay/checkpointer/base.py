@@ -21,6 +21,19 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class ThreadSummary:
+    """Summary of a persisted thread for the ``/resume`` thread picker.
+
+    Populated by :meth:`BaseCheckpointer.get_thread_summaries` from
+    checkpoint data so the CLI can display meaningful previews.
+    """
+
+    thread_id: str
+    last_message: str
+    timestamp: str = ""
+
+
+@dataclass
 class HumanMessageEntry:
     """A human message with replay metadata.
 
@@ -45,6 +58,15 @@ class BaseCheckpointer(_BaseCheckpointSaver):
 
     async def get_threads(self) -> set[str]:
         """Return all known thread IDs."""
+        raise NotImplementedError
+
+    async def get_thread_summaries(self) -> list[ThreadSummary]:
+        """Return summaries of all threads, sorted newest-first.
+
+        Each summary includes the thread ID, a preview of the last
+        human message, and the checkpoint timestamp.  The CLI uses
+        this to display a meaningful thread picker in ``/resume``.
+        """
         raise NotImplementedError
 
     async def get_history(self, latest: CheckpointTuple) -> list[CheckpointTuple]:

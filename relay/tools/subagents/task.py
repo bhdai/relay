@@ -42,7 +42,7 @@ class SubAgentRuntime(BaseModel):
     description: str
     tools: list[BaseTool]
     prompt: str
-    recursion_limit: int = 100
+    recursion_limit: int = 25
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

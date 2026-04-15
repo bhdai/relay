@@ -36,6 +36,7 @@ from langchain_core.messages import (
     RemoveMessage,
     ToolMessage,
 )
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
@@ -322,9 +323,16 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     shows every step explicitly.
     """
     settings = get_settings()
+    rl = settings.rate_limit
+    rate_limiter = InMemoryRateLimiter(
+        requests_per_second=rl.requests_per_second,
+        check_every_n_seconds=rl.check_every_n_seconds,
+        max_bucket_size=rl.max_bucket_size,
+    )
     llm = ChatOpenAI(
         model="gpt-4.1-mini",
         api_key=settings.llm.openai_api_key,
+        rate_limiter=rate_limiter,
     )
 
     # --- Build the graph -------------------------------------------------------

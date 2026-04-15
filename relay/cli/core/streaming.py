@@ -13,13 +13,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command, Interrupt
 from prompt_toolkit import PromptSession
 
 from relay.agents.context import AgentContext
 from relay.cli.theme import console
 from relay.cli.ui.renderer import (
+    render_assistant_message,
     render_cost_summary,
     render_info,
     render_tool_call,
@@ -39,6 +40,30 @@ logger = logging.getLogger(__name__)
 
 _RELAY_DIR = ".relay"
 _MEMORY_FILENAME = "memory.md"
+
+
+def _message_text(content: Any) -> str:
+    """Extract printable text from LangChain message content values."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+
+    return ""
+
+
+def _close_open_text_line(stats: "_TurnStats") -> None:
+    """Finish the current streamed line before structured output."""
+    if stats.line_open:
+        print()
+        stats.line_open = False
 
 
 def _load_user_memory(working_dir: str | None = None) -> str:
@@ -75,9 +100,15 @@ async def prompt_for_interrupt(
 
         # Display the interrupt question.
         if hasattr(payload, "question"):
-            console.print(f"  ? {payload.question}", style="warning bold")
+            console.print(
+                f"  ? {payload.question}",
+                style=console.get_style("warning", bold=True),
+            )
         else:
-            console.print(f"  ? {payload}", style="warning bold")
+            console.print(
+                f"  ? {payload}",
+                style=console.get_style("warning", bold=True),
+            )
 
         # Show options if available.
         options: list[str] = []
@@ -114,13 +145,20 @@ async def prompt_for_interrupt(
 class _TurnStats:
     """Mutable accumulator for per-turn token/cost data."""
 
-    __slots__ = ("input_tokens", "output_tokens", "cost", "collected_text")
+    __slots__ = (
+        "input_tokens",
+        "output_tokens",
+        "cost",
+        "collected_text",
+        "line_open",
+    )
 
     def __init__(self) -> None:
         self.input_tokens: int = 0
         self.output_tokens: int = 0
         self.cost: float = 0.0
         self.collected_text: str = ""
+        self.line_open: bool = False
 
 
 async def stream_response(
@@ -128,6 +166,8 @@ async def stream_response(
     input_value: Any,
     *,
     thread_id: str,
+    input_cost_per_mtok: float = 0.0,
+    output_cost_per_mtok: float = 0.0,
 ) -> _TurnStats:
     """Stream the graph response, handling interrupts automatically.
 
@@ -147,7 +187,11 @@ async def stream_response(
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    context = AgentContext(user_memory=_load_user_memory())
+    context = AgentContext(
+        user_memory=_load_user_memory(),
+        input_cost_per_mtok=input_cost_per_mtok,
+        output_cost_per_mtok=output_cost_per_mtok,
+    )
     stats = _TurnStats()
     current_input = input_value
 
@@ -175,10 +219,11 @@ async def stream_response(
             if namespace == "messages":
                 msg, _metadata = chunk
                 if isinstance(msg, AIMessageChunk) and msg.content:
-                    text = msg.content if isinstance(msg.content, str) else ""
+                    text = _message_text(msg.content)
                     if text:
                         print(text, end="", flush=True)
                         stats.collected_text += text
+                        stats.line_open = not text.endswith("\n")
 
             # -- Node-level updates ("updates" mode) --
             elif namespace == "updates":
@@ -189,11 +234,7 @@ async def stream_response(
                 raw_interrupts = chunk.get("__interrupt__")
                 if raw_interrupts:
                     # Finish any partial output line.
-                    if stats.collected_text and not stats.collected_text.endswith(
-                        "\n"
-                    ):
-                        print()
-                        stats.collected_text = ""
+                    _close_open_text_line(stats)
 
                     resume_value = await prompt_for_interrupt(raw_interrupts)
                     if resume_value is not None:
@@ -213,12 +254,21 @@ async def stream_response(
                     for msg in messages:
                         if hasattr(msg, "tool_calls"):
                             for tc in msg.tool_calls:
+                                _close_open_text_line(stats)
                                 render_tool_call(tc["name"], tc.get("args", {}))
 
+                        if isinstance(msg, AIMessage):
+                            text = _message_text(msg.content)
+                            if text and not stats.collected_text.strip():
+                                _close_open_text_line(stats)
+                                render_assistant_message(text)
+                                stats.collected_text = text
+
                         if isinstance(msg, ToolMessage) and msg.status == "error":
+                            _close_open_text_line(stats)
                             console.print(
                                 f"  ✗ {msg.name}: {msg.content[:200]}",
-                                style="error bold",
+                                style=console.get_style("error", bold=True),
                             )
 
                     # Extract cost data from state updates.

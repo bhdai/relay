@@ -30,6 +30,10 @@ class Context:
     total_output_tokens: int = 0
     total_cost: float = 0.0
 
+    # Model pricing used by TokenCostMiddleware to compute per-call cost.
+    input_cost_per_mtok: float = 0.0
+    output_cost_per_mtok: float = 0.0
+
     # Whether the REPL loop should keep running.
     running: bool = True
 

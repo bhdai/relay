@@ -38,11 +38,6 @@
   `create_react_agent` middleware stack because they require runtime
   configuration (approval mode, tool-sandbox map) that the CLI does not
   yet wire up.
-- `AIMessageChunk.content` can be a list of content blocks (not just a string)
-  when the LLM returns multi-part responses. The streaming path now guards
-  against this, but the list-of-blocks case silently drops non-text content
-  instead of extracting text parts from the list. A proper fix would iterate
-  the list and extract `{"type": "text", "text": "..."}` blocks.
 - `relay/cli/session.py` and `relay/cli/streaming.py` are dead files from
   before the CLI restructuring into `core/`, `dispatchers/`, `handlers/`.
   They can be deleted once we confirm nothing else references them.
@@ -56,3 +51,7 @@
   `ToolException` and crashes the REPL. The subagent graph needs a higher
   recursion limit or the `task` tool should catch `GraphRecursionError`
   and return a graceful failure message.
+- Relay's built-in `InMemoryRateLimiter` is request-based (`requests_per_second`)
+  but the OpenAI failure mode seen in the CLI is token-per-minute. It can slow
+  request bursts, but it does not estimate prompt size or prevent large-tool-
+ output turns from hitting provider TPM limits.

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 
-from relay.checkpointer.base import BaseCheckpointer, HumanMessageEntry
+from relay.checkpointer.base import BaseCheckpointer, HumanMessageEntry, ThreadSummary
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -37,6 +37,42 @@ class MemoryCheckpointer(MemorySaver, BaseCheckpointer):
     async def get_threads(self) -> set[str]:
         """Return all thread IDs stored in memory."""
         return set(self.storage.keys())
+
+    async def get_thread_summaries(self) -> list[ThreadSummary]:
+        """Return summaries for all in-memory threads, sorted newest-first."""
+        summaries: list[ThreadSummary] = []
+
+        for tid in self.storage:
+            config = RunnableConfig(configurable={"thread_id": tid})
+            checkpoint_tuple = await self.aget_tuple(config)
+            if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
+                continue
+
+            messages = checkpoint_tuple.checkpoint.get(
+                "channel_values", {}
+            ).get("messages", [])
+
+            # Find the last human message for the preview.
+            preview = "(no messages)"
+            for msg in reversed(messages):
+                if msg.type == "human":
+                    text = getattr(msg, "text", None) or str(
+                        getattr(msg, "content", "")
+                    )
+                    preview = text[:120]
+                    break
+
+            ts = checkpoint_tuple.checkpoint.get("ts", "")
+            summaries.append(
+                ThreadSummary(
+                    thread_id=tid,
+                    last_message=preview,
+                    timestamp=ts or "",
+                )
+            )
+
+        summaries.sort(key=lambda s: s.timestamp, reverse=True)
+        return summaries
 
     # ------------------------------------------------------------------
     # History traversal

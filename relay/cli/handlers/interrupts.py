@@ -37,9 +37,15 @@ class InterruptHandler:
 
             # Display the interrupt question.
             if hasattr(payload, "question"):
-                console.print(f"  ? {payload.question}", style="warning bold")
+                console.print(
+                    f"  ? {payload.question}",
+                    style=console.get_style("warning", bold=True),
+                )
             else:
-                console.print(f"  ? {payload}", style="warning bold")
+                console.print(
+                    f"  ? {payload}",
+                    style=console.get_style("warning", bold=True),
+                )
 
             # Show options if available.
             options: list[str] = []

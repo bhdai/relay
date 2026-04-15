@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from relay.checkpointer.base import BaseCheckpointer, HumanMessageEntry
+from relay.checkpointer.base import BaseCheckpointer, HumanMessageEntry, ThreadSummary
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -78,6 +78,7 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
                 message_idx INTEGER NOT NULL,
                 message_type TEXT NOT NULL,
                 message_preview TEXT,
+                checkpoint_ts TEXT,
                 PRIMARY KEY (thread_id, checkpoint_id, message_idx)
             );
             CREATE INDEX IF NOT EXISTS idx_thread_ns_messages
@@ -87,6 +88,17 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
             CREATE INDEX IF NOT EXISTS idx_checkpoint_id
                 ON checkpoints(checkpoint_id);
             """)
+
+            # Migrate existing databases that lack the checkpoint_ts column.
+            cursor = await self.conn.execute(
+                "PRAGMA table_info(checkpoint_messages)"
+            )
+            columns = {row[1] for row in await cursor.fetchall()}
+            if "checkpoint_ts" not in columns:
+                await self.conn.execute(
+                    "ALTER TABLE checkpoint_messages ADD COLUMN checkpoint_ts TEXT"
+                )
+
             await self.conn.commit()
 
         logger.debug("Message index tables created")
@@ -125,6 +137,7 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
             thread_id = config["configurable"].get("thread_id")
             checkpoint_id = checkpoint.get("id")
             checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
+            checkpoint_ts = checkpoint.get("ts", "")
 
             if not thread_id or not checkpoint_id:
                 return
@@ -148,6 +161,7 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
                         idx,
                         msg.type,
                         self._get_message_preview(msg),
+                        checkpoint_ts,
                     )
                     for idx, msg in enumerate(messages)
                 ]
@@ -156,8 +170,9 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
                     """
                     INSERT OR REPLACE INTO checkpoint_messages
                     (thread_id, checkpoint_id, checkpoint_ns,
-                     message_idx, message_type, message_preview)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                     message_idx, message_type, message_preview,
+                     checkpoint_ts)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -183,6 +198,95 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
         except Exception as e:
             logger.error("Failed to get thread IDs: %s", e)
             return set()
+
+    async def get_thread_summaries(self) -> list[ThreadSummary]:
+        """Return summaries for all threads, sorted newest-first.
+
+        Uses the ``checkpoint_messages`` index table when available to
+        avoid deserialising every checkpoint.  Falls back to reading
+        the latest checkpoint per thread when the index is empty.
+        """
+        try:
+            # ----------------------------------------------------------
+            # Fast path: pull the latest human message per thread from
+            # the index table.
+            # ----------------------------------------------------------
+            async with self.lock:
+                cursor = await self.conn.execute("""
+                    SELECT
+                        cm.thread_id,
+                        cm.message_preview,
+                        cm.checkpoint_ts
+                    FROM checkpoint_messages cm
+                    JOIN (
+                        SELECT thread_id, MAX(checkpoint_id) AS latest_cp
+                        FROM checkpoints
+                        WHERE checkpoint_ns = ''
+                        GROUP BY thread_id
+                    ) lc ON cm.thread_id = lc.thread_id
+                           AND cm.checkpoint_id = lc.latest_cp
+                    WHERE cm.message_type = 'human'
+                    ORDER BY cm.message_idx DESC
+                """)
+                rows = await cursor.fetchall()
+
+            # De-duplicate: keep only the last human message per thread.
+            seen: dict[str, ThreadSummary] = {}
+            for thread_id, preview, ts in rows:
+                if thread_id not in seen:
+                    seen[thread_id] = ThreadSummary(
+                        thread_id=thread_id,
+                        last_message=preview or "(no content)",
+                        timestamp=ts or "",
+                    )
+
+            if seen:
+                return sorted(
+                    seen.values(), key=lambda s: s.timestamp, reverse=True
+                )
+
+            # ----------------------------------------------------------
+            # Slow path: index is empty — fall back to deserialising
+            # the latest checkpoint per thread.
+            # ----------------------------------------------------------
+            thread_ids = await self.get_threads()
+            summaries: list[ThreadSummary] = []
+
+            for tid in thread_ids:
+                config = RunnableConfig(configurable={"thread_id": tid})
+                checkpoint_tuple = await self.aget_tuple(config)
+                if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
+                    continue
+
+                messages = checkpoint_tuple.checkpoint.get(
+                    "channel_values", {}
+                ).get("messages", [])
+
+                # Find the last human message for the preview.
+                preview = "(no messages)"
+                for msg in reversed(messages):
+                    if msg.type == "human":
+                        text = getattr(msg, "text", None) or str(
+                            getattr(msg, "content", "")
+                        )
+                        preview = text[:120]
+                        break
+
+                ts = checkpoint_tuple.checkpoint.get("ts", "")
+                summaries.append(
+                    ThreadSummary(
+                        thread_id=tid,
+                        last_message=preview,
+                        timestamp=ts or "",
+                    )
+                )
+
+            summaries.sort(key=lambda s: s.timestamp, reverse=True)
+            return summaries
+
+        except Exception as e:
+            logger.error("Failed to get thread summaries: %s", e)
+            return []
 
     # ------------------------------------------------------------------
     # History traversal
