@@ -84,3 +84,90 @@ async def test_stream_response_passes_pricing_into_agent_context() -> None:
     assert graph.last_context is not None
     assert graph.last_context.input_cost_per_mtok == 0.4
     assert graph.last_context.output_cost_per_mtok == 1.6
+
+
+@pytest.mark.asyncio
+async def test_stream_response_renders_custom_subagent_updates() -> None:
+    """Custom stream events should surface delegated subagent activity."""
+    graph = _FakeGraph(
+        [
+            (
+                "custom",
+                {
+                    "relay_event": "subagent_start",
+                    "subagent": "explorer",
+                    "description": "Inspect the repository",
+                },
+            ),
+            (
+                "custom",
+                {
+                    "relay_event": "subagent_update",
+                    "subagent": "explorer",
+                    "update": {
+                        "agent": {
+                            "messages": [
+                                AIMessage(
+                                    content="",
+                                    tool_calls=[
+                                        {
+                                            "name": "read_file",
+                                            "args": {"file_path": "relay/main.py"},
+                                            "id": "call_123",
+                                        }
+                                    ],
+                                )
+                            ]
+                        }
+                    },
+                },
+            ),
+        ]
+    )
+
+    with (
+        patch("relay.cli.core.streaming.render_info") as render_info,
+        patch("relay.cli.core.streaming.render_tool_call") as render_tool_call,
+    ):
+        await stream_response(graph, {"messages": []}, thread_id="thread-1")
+
+    render_info.assert_called_once_with("  ↳ explorer: Inspect the repository")
+    render_tool_call.assert_called_once_with(
+        "read_file",
+        {"file_path": "relay/main.py"},
+        indent_level=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_response_supports_namespaced_events() -> None:
+    """Three-field stream events from subgraph-aware streams should be accepted."""
+    graph = _FakeGraph(
+        [
+            (
+                ("tools",),
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "name": "ls",
+                                        "args": {"path": "."},
+                                        "id": "call_456",
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            )
+        ]
+    )
+
+    with patch("relay.cli.core.streaming.render_tool_call") as render_tool_call:
+        await stream_response(graph, {"messages": []}, thread_id="thread-1")
+
+    render_tool_call.assert_called_once_with("ls", {"path": "."}, indent_level=0)

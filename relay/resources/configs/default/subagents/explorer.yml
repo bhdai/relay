@@ -4,7 +4,7 @@ prompt:
   - prompts/subagents/explorer.md
   - prompts/suffixes/environments.md
 llm: default
-recursion_limit: 25
+recursion_limit: 100
 tools:
   patterns:
     - impl:file_system:read_file

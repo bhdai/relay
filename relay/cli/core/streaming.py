@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from relay.cli.ui.renderer import (
     render_cost_summary,
     render_info,
     render_tool_call,
+    render_tool_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,6 +163,161 @@ class _TurnStats:
         self.line_open: bool = False
 
 
+class _DisplayState:
+    """Track structured output already rendered for the current turn."""
+
+    __slots__ = (
+        "rendered_tool_calls",
+        "rendered_tool_errors",
+        "announced_subagents",
+    )
+
+    def __init__(self) -> None:
+        self.rendered_tool_calls: set[str] = set()
+        self.rendered_tool_errors: set[str] = set()
+        self.announced_subagents: set[str] = set()
+
+
+def _unpack_stream_event(raw_event: Any) -> tuple[tuple[str, ...], str, Any] | None:
+    """Normalize graph stream events with or without subgraph metadata."""
+    if not isinstance(raw_event, tuple):
+        return None
+
+    if len(raw_event) == 3:
+        namespace, mode, data = raw_event
+        if isinstance(namespace, tuple):
+            return namespace, mode, data
+        if isinstance(namespace, str):
+            return (namespace,), mode, data
+        return (), mode, data
+
+    if len(raw_event) == 2:
+        mode, data = raw_event
+        return (), mode, data
+
+    return None
+
+
+def _tool_call_key(tool_call: dict[str, Any], *, fallback_index: int) -> str:
+    """Build a stable dedupe key for a rendered tool call."""
+    call_id = tool_call.get("id")
+    if isinstance(call_id, str) and call_id:
+        return call_id
+
+    name = tool_call.get("name") or "tool"
+    args = tool_call.get("args", {})
+    return f"{name}:{args!r}:{fallback_index}"
+
+
+def _tool_error_key(message: ToolMessage, *, fallback_index: int) -> str:
+    """Build a stable dedupe key for a rendered tool error."""
+    if message.tool_call_id:
+        return message.tool_call_id
+    if message.id:
+        return str(message.id)
+    return f"{message.name}:{message.content!r}:{fallback_index}"
+
+
+def _iter_node_outputs(update: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract node output payloads from a streamed update event."""
+    if "messages" in update:
+        return [update]
+
+    outputs: list[dict[str, Any]] = []
+    for value in update.values():
+        if isinstance(value, dict):
+            outputs.append(value)
+    return outputs
+
+
+def _handle_node_output(
+    node_output: dict[str, Any],
+    *,
+    stats: _TurnStats,
+    display_state: _DisplayState,
+    indent_level: int = 0,
+) -> None:
+    """Render a node update from the graph stream."""
+    messages = node_output.get("messages", [])
+    for index, msg in enumerate(messages):
+        if hasattr(msg, "tool_calls"):
+            for tc in msg.tool_calls:
+                tool_key = _tool_call_key(tc, fallback_index=index)
+                if tool_key in display_state.rendered_tool_calls:
+                    continue
+
+                display_state.rendered_tool_calls.add(tool_key)
+                _close_open_text_line(stats)
+                render_tool_call(
+                    tc["name"],
+                    tc.get("args", {}),
+                    indent_level=indent_level,
+                )
+
+        if isinstance(msg, ToolMessage) and msg.status == "error":
+            error_key = _tool_error_key(msg, fallback_index=index)
+            if error_key in display_state.rendered_tool_errors:
+                continue
+
+            display_state.rendered_tool_errors.add(error_key)
+            _close_open_text_line(stats)
+            render_tool_error(
+                msg.name or "tool",
+                msg.content[:200],
+                indent_level=indent_level,
+            )
+
+    if "current_input_tokens" in node_output:
+        stats.input_tokens = node_output["current_input_tokens"] or 0
+    if "current_output_tokens" in node_output:
+        stats.output_tokens = node_output["current_output_tokens"] or 0
+    if "total_cost" in node_output:
+        stats.cost = node_output["total_cost"] or 0.0
+
+
+def _handle_custom_event(
+    chunk: Any,
+    *,
+    namespace: tuple[str, ...],
+    stats: _TurnStats,
+    display_state: _DisplayState,
+) -> None:
+    """Render delegated subagent activity forwarded by the task tool."""
+    if not isinstance(chunk, dict):
+        return
+
+    event_type = chunk.get("relay_event")
+    subagent = chunk.get("subagent") or "subagent"
+    indent_level = len(namespace) + 1
+
+    if event_type == "subagent_start":
+        description = str(chunk.get("description", "")).strip()
+        dedupe_key = f"{subagent}:{description}"
+        if dedupe_key in display_state.announced_subagents:
+            return
+
+        display_state.announced_subagents.add(dedupe_key)
+        _close_open_text_line(stats)
+        prefix = "  " * indent_level
+        render_info(f"{prefix}↳ {subagent}: {description}")
+        return
+
+    if event_type != "subagent_update":
+        return
+
+    update = chunk.get("update")
+    if not isinstance(update, dict):
+        return
+
+    for node_output in _iter_node_outputs(update):
+        _handle_node_output(
+            node_output,
+            stats=stats,
+            display_state=display_state,
+            indent_level=indent_level,
+        )
+
+
 async def stream_response(
     graph: Any,
     input_value: Any,
@@ -195,6 +352,7 @@ async def stream_response(
         output_cost_per_mtok=output_cost_per_mtok,
     )
     stats = _TurnStats()
+    display_state = _DisplayState()
     current_input = input_value
 
     # ==================================================================
@@ -212,13 +370,23 @@ async def stream_response(
         stream = graph.astream(
             current_input,
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["messages", "updates", "custom"],
             context=context,
+            subgraphs=True,
         )
 
-        async for namespace, chunk in stream:
+        async for raw_event in stream:
+            event = _unpack_stream_event(raw_event)
+            if event is None:
+                continue
+
+            namespace, mode, chunk = event
+
             # -- Token-level chunks ("messages" mode) --
-            if namespace == "messages":
+            if mode == "messages":
+                if not isinstance(chunk, Sequence) or len(chunk) != 2:
+                    continue
+
                 msg, _metadata = chunk
                 if isinstance(msg, AIMessageChunk) and msg.content:
                     text = _message_text(msg.content)
@@ -228,14 +396,13 @@ async def stream_response(
                         stats.line_open = not text.endswith("\n")
 
             # -- Node-level updates ("updates" mode) --
-            elif namespace == "updates":
+            elif mode == "updates":
                 if not isinstance(chunk, dict):
                     continue
 
                 # ---- Interrupt detection ----
                 raw_interrupts = chunk.get("__interrupt__")
                 if raw_interrupts:
-                    # Finish any partial output line.
                     _close_open_text_line(stats)
 
                     resume_value = await prompt_for_interrupt(raw_interrupts)
@@ -243,22 +410,19 @@ async def stream_response(
                         current_input = Command(resume=resume_value)
                         interrupted = True
                         break
-                    else:
-                        # User cancelled — stop the loop.
-                        break
+
+                    break
 
                 # ---- Normal node output ----
-                for _node_name, node_output in chunk.items():
-                    if not isinstance(node_output, dict):
-                        continue
+                for node_output in _iter_node_outputs(chunk):
+                    _handle_node_output(
+                        node_output,
+                        stats=stats,
+                        display_state=display_state,
+                    )
 
                     messages = node_output.get("messages", [])
                     for msg in messages:
-                        if hasattr(msg, "tool_calls"):
-                            for tc in msg.tool_calls:
-                                _close_open_text_line(stats)
-                                render_tool_call(tc["name"], tc.get("args", {}))
-
                         if isinstance(msg, AIMessage):
                             text = _message_text(msg.content)
                             if text and not stats.collected_text.strip():
@@ -266,24 +430,13 @@ async def stream_response(
                                 render_assistant_message(text)
                                 stats.collected_text = text
 
-                        if isinstance(msg, ToolMessage) and msg.status == "error":
-                            _close_open_text_line(stats)
-                            console.print(
-                                f"  ✗ {msg.name}: {msg.content[:200]}",
-                                style=console.get_style("error", bold=True),
-                            )
-
-                    # Extract cost data from state updates.
-                    if "current_input_tokens" in node_output:
-                        stats.input_tokens = (
-                            node_output["current_input_tokens"] or 0
-                        )
-                    if "current_output_tokens" in node_output:
-                        stats.output_tokens = (
-                            node_output["current_output_tokens"] or 0
-                        )
-                    if "total_cost" in node_output:
-                        stats.cost = node_output["total_cost"] or 0.0
+            elif mode == "custom":
+                _handle_custom_event(
+                    chunk,
+                    namespace=namespace,
+                    stats=stats,
+                    display_state=display_state,
+                )
 
         if not interrupted:
             break

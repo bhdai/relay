@@ -7,11 +7,13 @@ automatically by ``create_task_tool``.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from langchain.tools import ToolRuntime
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, ToolException, tool
+from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict
 
@@ -42,7 +44,7 @@ class SubAgentRuntime(BaseModel):
     description: str
     tools: list[BaseTool]
     prompt: str
-    recursion_limit: int = 25
+    recursion_limit: int = 100
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -107,6 +109,29 @@ def _render_message_content(message: AnyMessage | None) -> str:
     return str(content) if content else "Subagent completed."
 
 
+def _iter_update_payloads(data: Any) -> list[dict[str, Any]]:
+    """Extract node payload dicts from a LangGraph ``updates`` event."""
+    if not isinstance(data, dict):
+        return []
+
+    if "messages" in data:
+        return [data]
+
+    payloads: list[dict[str, Any]] = []
+    for value in data.values():
+        if isinstance(value, dict):
+            payloads.append(value)
+    return payloads
+
+
+def _stream_subagent_event(
+    runtime: ToolRuntime[AgentContext, AgentState],
+    payload: dict[str, Any],
+) -> None:
+    """Forward delegated subagent activity to the parent graph stream."""
+    runtime.stream_writer(deepcopy(payload))
+
+
 # ==============================================================================
 # Task tool
 # ==============================================================================
@@ -164,8 +189,23 @@ def create_task_tool(
         state = dict(runtime.state)
         state["messages"] = [HumanMessage(content=description)]
 
+        files_state = dict(state.get("files") or {})
+        todos_state = state.get("todos")
+        has_files = "files" in state
+        has_todos = "todos" in state
+        latest_messages: list[AnyMessage] | None = None
+
+        _stream_subagent_event(
+            runtime,
+            {
+                "relay_event": "subagent_start",
+                "subagent": subagent_type,
+                "description": description,
+            },
+        )
+
         try:
-            result = await subagent.ainvoke(
+            async for update in subagent.astream(
                 state,
                 context=(
                     runtime.context.model_copy(deep=True)
@@ -173,14 +213,68 @@ def create_task_tool(
                     else AgentContext()
                 ),
                 config={"recursion_limit": config.recursion_limit},
+                stream_mode="updates",
+            ):
+                if not isinstance(update, dict):
+                    continue
+
+                _stream_subagent_event(
+                    runtime,
+                    {
+                        "relay_event": "subagent_update",
+                        "subagent": subagent_type,
+                        "update": update,
+                    },
+                )
+
+                for payload in _iter_update_payloads(update):
+                    if "messages" in payload:
+                        latest_messages = payload["messages"]
+                    if "files" in payload:
+                        has_files = True
+                        files_state = {**files_state, **(payload["files"] or {})}
+                    if "todos" in payload:
+                        has_todos = True
+                        todos_state = payload["todos"]
+        except GraphRecursionError as exc:
+            _stream_subagent_event(
+                runtime,
+                {
+                    "relay_event": "subagent_finish",
+                    "subagent": subagent_type,
+                    "status": "error",
+                },
             )
+            raise ToolException(
+                "Subagent "
+                f"'{subagent_type}' exceeded recursion limit "
+                f"({config.recursion_limit}) while handling the delegated task. "
+                "The task likely stayed in an exploration loop instead of reaching "
+                "a final answer."
+            ) from exc
         except Exception as exc:
+            _stream_subagent_event(
+                runtime,
+                {
+                    "relay_event": "subagent_finish",
+                    "subagent": subagent_type,
+                    "status": "error",
+                },
+            )
             raise ToolException(
                 f"delegate task to subagent '{subagent_type}'"
             ) from exc
 
-        messages = result.get("messages") or []
-        last_message = messages[-1] if messages else None
+        _stream_subagent_event(
+            runtime,
+            {
+                "relay_event": "subagent_finish",
+                "subagent": subagent_type,
+                "status": "completed",
+            },
+        )
+
+        last_message = latest_messages[-1] if latest_messages else None
         is_error = isinstance(last_message, ToolMessage) and (
             getattr(last_message, "is_error", False)
             or getattr(last_message, "status", None) == "error"
@@ -196,10 +290,10 @@ def create_task_tool(
                 )
             ]
         }
-        if "files" in result:
-            update["files"] = result["files"]
-        if "todos" in result:
-            update["todos"] = result["todos"]
+        if has_files:
+            update["files"] = files_state
+        if has_todos:
+            update["todos"] = todos_state
 
         return Command(update=update)
 
