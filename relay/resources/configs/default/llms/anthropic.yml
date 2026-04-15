@@ -1,0 +1,18 @@
+- alias: haiku-4.5-thinking
+  provider: anthropic
+  model: claude-haiku-4-5
+  max_tokens: 10000
+  temperature: 1.0
+  input_cost_per_mtok: 1.0
+  output_cost_per_mtok: 5.0
+  extended_reasoning:
+    type: enabled
+    budget_tokens: 2000
+
+- alias: sonnet-4.5
+  provider: anthropic
+  model: claude-sonnet-4-5
+  max_tokens: 8192
+  temperature: 0.1
+  input_cost_per_mtok: 3.0
+  output_cost_per_mtok: 15.0

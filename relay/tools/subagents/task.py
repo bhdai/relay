@@ -8,10 +8,11 @@ automatically by ``create_task_tool``.
 from __future__ import annotations
 
 from copy import deepcopy
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from langchain.tools import ToolRuntime
-from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessageChunk, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, ToolException, tool
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
@@ -20,9 +21,12 @@ from pydantic import BaseModel, ConfigDict
 from relay.agents.context import AgentContext
 from relay.agents.react_agent import create_react_agent
 from relay.agents.state import AgentState
+from relay.configs.llm import LLMConfig
 from relay.utils.messages import create_tool_message
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from langchain_core.language_models import BaseChatModel
     from langgraph.graph.state import CompiledStateGraph
 
@@ -44,6 +48,7 @@ class SubAgentRuntime(BaseModel):
     description: str
     tools: list[BaseTool]
     prompt: str
+    llm_config: LLMConfig | None = None
     recursion_limit: int = 100
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -132,6 +137,26 @@ def _stream_subagent_event(
     runtime.stream_writer(deepcopy(payload))
 
 
+def _unpack_subagent_event(raw_event: Any) -> tuple[tuple[str, ...], str, Any] | None:
+    """Normalize a subagent stream event with optional subgraph metadata."""
+    if not isinstance(raw_event, tuple):
+        return None
+
+    if len(raw_event) == 3:
+        namespace, mode, data = raw_event
+        if isinstance(namespace, tuple):
+            return namespace, mode, data
+        if isinstance(namespace, str):
+            return (namespace,), mode, data
+        return (), mode, data
+
+    if len(raw_event) == 2:
+        mode, data = raw_event
+        return (), mode, data
+
+    return None
+
+
 # ==============================================================================
 # Task tool
 # ==============================================================================
@@ -139,7 +164,7 @@ def _stream_subagent_event(
 
 def create_task_tool(
     subagent_configs: list[SubAgentRuntime],
-    llm: BaseChatModel,
+    model_provider: Callable[[LLMConfig | None], BaseChatModel],
 ):
     """Create a ``task`` tool that delegates work to named subagents.
 
@@ -175,8 +200,9 @@ def create_task_tool(
 
         # Lazily compile the subagent graph on first delegation.
         if subagent_type not in agents:
+            model = model_provider(config.llm_config)
             agents[subagent_type] = create_react_agent(
-                llm,
+                model,
                 tools=[*config.tools, think],
                 prompt=config.prompt,
                 state_schema=AgentState,
@@ -205,7 +231,7 @@ def create_task_tool(
         )
 
         try:
-            async for update in subagent.astream(
+            async for raw_event in subagent.astream(
                 state,
                 context=(
                     runtime.context.model_copy(deep=True)
@@ -213,9 +239,35 @@ def create_task_tool(
                     else AgentContext()
                 ),
                 config={"recursion_limit": config.recursion_limit},
-                stream_mode="updates",
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
             ):
-                if not isinstance(update, dict):
+                event = _unpack_subagent_event(raw_event)
+                if event is None:
+                    continue
+
+                child_namespace, mode, data = event
+
+                if mode == "messages":
+                    if not isinstance(data, Sequence) or len(data) != 2:
+                        continue
+
+                    msg_chunk, _metadata = data
+                    if not isinstance(msg_chunk, AIMessageChunk):
+                        continue
+
+                    _stream_subagent_event(
+                        runtime,
+                        {
+                            "relay_event": "subagent_message",
+                            "subagent": subagent_type,
+                            "namespace": list(child_namespace),
+                            "message": msg_chunk,
+                        },
+                    )
+                    continue
+
+                if mode != "updates" or not isinstance(data, dict):
                     continue
 
                 _stream_subagent_event(
@@ -223,11 +275,12 @@ def create_task_tool(
                     {
                         "relay_event": "subagent_update",
                         "subagent": subagent_type,
-                        "update": update,
+                        "namespace": list(child_namespace),
+                        "update": data,
                     },
                 )
 
-                for payload in _iter_update_payloads(update):
+                for payload in _iter_update_payloads(data):
                     if "messages" in payload:
                         latest_messages = payload["messages"]
                     if "files" in payload:

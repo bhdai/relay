@@ -37,6 +37,19 @@ def _write_prompt(config_dir: Path, rel_path: str, content: str) -> None:
     prompt_file.write_text(content)
 
 
+def _write_llm(config_dir: Path, alias: str, **overrides) -> None:
+    """Write a minimal llm YAML to *config_dir*/llms/."""
+    llms_dir = config_dir / "llms"
+    llms_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "alias": alias,
+        "provider": "openai",
+        "model": alias,
+        **overrides,
+    }
+    (llms_dir / f"{alias}.yml").write_text(yaml.dump(data, default_flow_style=False))
+
+
 # ==============================================================================
 # ensure_config_dir
 # ==============================================================================
@@ -53,6 +66,7 @@ class TestEnsureConfigDir:
         assert config_dir.exists()
         assert (config_dir / "agents").is_dir()
         assert (config_dir / "subagents").is_dir()
+        assert (config_dir / "llms").is_dir()
 
     async def test_idempotent_when_exists(self, tmp_path: Path):
         config_dir = tmp_path / ".relay"
@@ -148,6 +162,24 @@ class TestLoadSubagents:
 
         assert first is not second
 
+    async def test_validates_llm_alias(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        _write_llm(config_dir, "haiku-4.5-thinking", provider="anthropic")
+        _write_subagent(config_dir, "explorer", llm="haiku-4.5-thinking")
+
+        registry = ConfigRegistry(tmp_path)
+        batch = await registry.load_subagents()
+
+        assert batch.get_subagent("explorer") is not None
+
+    async def test_raises_for_unknown_llm_alias(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        _write_subagent(config_dir, "explorer", llm="missing-llm")
+
+        registry = ConfigRegistry(tmp_path)
+        with pytest.raises(ValueError, match="missing-llm"):
+            await registry.load_subagents()
+
 
 # ==============================================================================
 # load_agents
@@ -196,6 +228,37 @@ class TestLoadAgents:
         agent = batch.get_agent("general")
         assert agent is not None
         assert agent.subagents == ["explorer"]
+
+    async def test_validates_llm_alias(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        _write_llm(config_dir, "haiku-4.5-thinking", provider="anthropic")
+        _write_agent(config_dir, "general", llm="haiku-4.5-thinking")
+
+        registry = ConfigRegistry(tmp_path)
+        batch = await registry.load_agents()
+
+        assert batch.get_agent("general") is not None
+
+    async def test_raises_for_unknown_llm_alias(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        _write_agent(config_dir, "general", llm="missing-llm")
+
+        registry = ConfigRegistry(tmp_path)
+        with pytest.raises(ValueError, match="missing-llm"):
+            await registry.load_agents()
+
+
+class TestLoadLlms:
+    async def test_loads_from_yaml(self, tmp_path: Path):
+        config_dir = tmp_path / ".relay"
+        _write_llm(config_dir, "gpt-5-mini-thinking")
+        _write_llm(config_dir, "haiku-4.5-thinking", provider="anthropic")
+
+        registry = ConfigRegistry(tmp_path)
+        batch = await registry.load_llms()
+
+        assert batch.llm_names == ["gpt-5-mini-thinking", "haiku-4.5-thinking"]
+        assert batch.get_llm("haiku-4.5-thinking") is not None
 
 
 # ==============================================================================

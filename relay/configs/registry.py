@@ -20,6 +20,7 @@ from relay.configs.agent import (
     BatchSubAgentConfig,
     SubAgentConfig,
 )
+from relay.configs.llm import BatchLLMConfig, LLMConfig
 from relay.configs.utils import load_prompt_content, load_yaml_dir
 from relay.mcp.config import MCPConfig
 
@@ -31,6 +32,7 @@ CONFIG_DIR_NAME = ".relay"
 # Subdirectory names inside the config dir.
 CONFIG_AGENTS_DIR = Path(CONFIG_DIR_NAME) / "agents"
 CONFIG_SUBAGENTS_DIR = Path(CONFIG_DIR_NAME) / "subagents"
+CONFIG_LLMS_DIR = Path(CONFIG_DIR_NAME) / "llms"
 
 # MCP config file (VS Code / Claude Code ``mcpServers`` format).
 CONFIG_MCP_FILE = "mcp.json"
@@ -67,6 +69,7 @@ class ConfigRegistry:
         # Lazy caches — populated by the first call to load_*.
         self._agents: BatchAgentConfig | None = None
         self._subagents: BatchSubAgentConfig | None = None
+        self._llms: BatchLLMConfig | None = None
         self._mcp: MCPConfig | None = None
 
     # ==================================================================
@@ -115,6 +118,30 @@ class ConfigRegistry:
         return copied_files
 
     # ==================================================================
+    # LLM configs
+    # ==================================================================
+
+    async def load_llms(
+        self,
+        *,
+        force_reload: bool = False,
+    ) -> BatchLLMConfig:
+        """Load all LLM configs (cached)."""
+        if self._llms is not None and not force_reload:
+            return self._llms
+
+        await self.ensure_config_dir()
+
+        raw_items = await load_yaml_dir(self.config_dir / "llms")
+        llms = [LLMConfig(**item) for item in raw_items]
+        self._llms = BatchLLMConfig(llms=llms)
+        return self._llms
+
+    async def get_llm(self, alias: str) -> LLMConfig | None:
+        llms = await self.load_llms()
+        return llms.get_llm(alias)
+
+    # ==================================================================
     # Subagent configs
     # ==================================================================
 
@@ -128,6 +155,7 @@ class ConfigRegistry:
             return self._subagents
 
         await self.ensure_config_dir()
+        llms = await self.load_llms()
 
         raw_items = await load_yaml_dir(self.config_dir / "subagents")
 
@@ -136,6 +164,14 @@ class ConfigRegistry:
         for item in raw_items:
             if prompt_ref := item.get("prompt"):
                 item["prompt"] = await load_prompt_content(self.config_dir, prompt_ref)
+
+            llm_alias = item.get("llm", "default")
+            if llm_alias != "default" and llms.get_llm(llm_alias) is None:
+                raise ValueError(
+                    f"Subagent '{item.get('name', '?')}' references unknown "
+                    f"llm '{llm_alias}'.  Available: {llms.llm_names}"
+                )
+
             resolved.append(SubAgentConfig(**item))
 
         self._subagents = BatchSubAgentConfig(subagents=resolved)
@@ -159,6 +195,7 @@ class ConfigRegistry:
             return self._agents
 
         await self.ensure_config_dir()
+        llms = await self.load_llms()
 
         raw_items = await load_yaml_dir(self.config_dir / "agents")
 
@@ -170,6 +207,13 @@ class ConfigRegistry:
             # Resolve prompt file paths into content.
             if prompt_ref := item.get("prompt"):
                 item["prompt"] = await load_prompt_content(self.config_dir, prompt_ref)
+
+            llm_alias = item.get("llm", "default")
+            if llm_alias != "default" and llms.get_llm(llm_alias) is None:
+                raise ValueError(
+                    f"Agent '{item.get('name', '?')}' references unknown "
+                    f"llm '{llm_alias}'.  Available: {llms.llm_names}"
+                )
 
             # Validate subagent references.
             if subagent_names := item.get("subagents"):

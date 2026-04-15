@@ -8,7 +8,9 @@ console so it picks up the active colour palette.
 from __future__ import annotations
 
 import re
+from typing import Any
 
+from langchain_core.messages import AIMessage
 from rich.markdown import Markdown
 from rich.text import Text
 
@@ -30,16 +32,48 @@ def _normalise_markdown(content: str) -> str:
     return _ESCAPED_FENCE_RE.sub("```", content)
 
 
+def _message_text(content: Any) -> str:
+    """Extract printable text from LangChain message content values."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+
+    return ""
+
+
 # ==============================================================================
 # Public Rendering Functions
 # ==============================================================================
 
 
-def render_assistant_message(content: str) -> None:
+def render_assistant_message(
+    content: str | AIMessage,
+    *,
+    indent_level: int = 0,
+) -> None:
     """Render a complete AI response as rich markdown."""
+    if isinstance(content, AIMessage):
+        content = _message_text(content.content)
+
     if not content.strip():
         return
+
     normalised = _normalise_markdown(content)
+
+    if indent_level > 0:
+        prefix = "  " * indent_level
+        for line in normalised.splitlines() or [normalised]:
+            console.print(f"{prefix}{line}")
+        return
+
     md = Markdown(normalised, code_theme="monokai")
     console.print(md)
 

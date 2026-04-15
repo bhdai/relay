@@ -28,6 +28,7 @@ def create_deep_agent(
     tools: list[BaseTool],
     prompt: str,
     subagent_configs: list[SubAgentRuntime] | None = None,
+    subagent_model_provider=None,
     state_schema: type[AgentState] | None = None,
     context_schema: type[AgentContext] | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -45,7 +46,7 @@ def create_deep_agent(
     if subagent_configs:
         task_tool = create_task_tool(
             subagent_configs=subagent_configs,
-            llm=model,
+            model_provider=subagent_model_provider or (lambda _config: model),
         )
         all_tools.append(task_tool)
 

@@ -14,6 +14,7 @@ from relay.configs.agent import (
     ToolsConfig,
 )
 from relay.configs.approval import ApprovalMode, ToolApprovalConfig, ToolApprovalRule
+from relay.configs.llm import BatchLLMConfig, LLMConfig, LLMProvider, RateConfig
 from relay.configs.registry import ConfigRegistry
 from relay.configs.utils import load_prompt_content
 
@@ -22,8 +23,12 @@ __all__ = [
     "ApprovalMode",
     "BaseAgentConfig",
     "BatchAgentConfig",
+    "BatchLLMConfig",
     "BatchSubAgentConfig",
     "ConfigRegistry",
+    "LLMConfig",
+    "LLMProvider",
+    "RateConfig",
     "SubAgentConfig",
     "ToolApprovalConfig",
     "ToolApprovalRule",
