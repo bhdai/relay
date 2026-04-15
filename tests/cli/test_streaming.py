@@ -75,6 +75,45 @@ async def test_stream_response_renders_final_ai_message_when_no_chunks() -> None
 
 
 @pytest.mark.asyncio
+async def test_stream_response_renders_reasoning_only_messages() -> None:
+    """Reasoning-only messages should still reach the renderer."""
+    graph = _FakeGraph(
+        [
+            (
+                "updates",
+                {
+                    "agent": {
+                        "messages": [
+                            AIMessage(
+                                content=[
+                                    {
+                                        "type": "reasoning_content",
+                                        "reasoning_content": "Detailed reasoning",
+                                    }
+                                ]
+                            )
+                        ]
+                    }
+                },
+            )
+        ]
+    )
+
+    with patch("relay.cli.core.streaming.render_assistant_message") as render_message:
+        stats = await stream_response(graph, {"messages": []}, thread_id="thread-1")
+
+    rendered = render_message.call_args.args[0]
+    assert isinstance(rendered, AIMessage)
+    assert rendered.content == [
+        {
+            "type": "reasoning_content",
+            "reasoning_content": "Detailed reasoning",
+        }
+    ]
+    assert stats.collected_text == ""
+
+
+@pytest.mark.asyncio
 async def test_stream_response_passes_pricing_into_agent_context() -> None:
     """Streaming should propagate configured pricing into AgentContext."""
     graph = _FakeGraph([])

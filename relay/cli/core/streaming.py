@@ -22,6 +22,8 @@ from prompt_toolkit import PromptSession
 from relay.agents.context import AgentContext
 from relay.cli.theme import console
 from relay.cli.ui.renderer import (
+    assistant_message_has_renderable_content,
+    assistant_message_text,
     render_assistant_message,
     render_cost_summary,
     render_info,
@@ -43,23 +45,6 @@ logger = logging.getLogger(__name__)
 
 _RELAY_DIR = ".relay"
 _MEMORY_FILENAME = "memory.md"
-
-
-def _message_text(content: Any) -> str:
-    """Extract printable text from LangChain message content values."""
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text", "")))
-        return "".join(parts)
-
-    return ""
 
 
 def _close_open_text_line(stats: "_TurnStats") -> None:
@@ -271,8 +256,7 @@ def _render_ai_message(
     fallback_index: int = 0,
 ) -> None:
     """Render a full assistant message once per turn."""
-    text = _message_text(message.content)
-    if not text.strip():
+    if not assistant_message_has_renderable_content(message):
         return
 
     message_key = _message_key(message, fallback_index=fallback_index)
@@ -282,7 +266,9 @@ def _render_ai_message(
     display_state.rendered_ai_messages.add(message_key)
     _close_open_text_line(stats)
     render_assistant_message(message, indent_level=indent_level)
-    stats.collected_text += text
+    text = assistant_message_text(message)
+    if text:
+        stats.collected_text += text
 
 
 def _buffer_message_chunk(
