@@ -12,12 +12,20 @@ is not yet rich enough for a full ``Context.create()`` factory method.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from uuid import uuid4
 
 
 @dataclass
 class Context:
     """Runtime state scoped to a single CLI session."""
+
+    # Project root used for config loading, tool execution, and memory.
+    working_dir: str = field(default_factory=lambda: str(Path.cwd()))
+
+    # Selected top-level agent config and optional model override.
+    agent: str | None = None
+    model: str | None = None
 
     # Checkpointer backend name (e.g. "sqlite", "memory").
     backend: str = "sqlite"

@@ -1,0 +1,17 @@
+name: claude-style-coder
+description: "Software development agent tuned for code-first execution and repository-aware problem solving"
+prompt:
+  - prompts/agents/claude-style-coder.md
+  - prompts/suffixes/environments.md
+llm: default
+checkpointer: sqlite
+default: false
+recursion_limit: 1000
+tools:
+  patterns:
+    - impl:*:*
+    - internal:*:*
+  output_max_tokens: 10000
+subagents:
+  - general-purpose
+  - explorer

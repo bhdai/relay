@@ -1,19 +1,16 @@
-# Load .env into os.environ before any LangChain/LangSmith imports so that
-# tracing variables (LANGSMITH_API_KEY, LANGSMITH_TRACING, etc.) are visible
-# to the LangSmith SDK, which reads os.environ directly.
-from dotenv import load_dotenv
-
-load_dotenv()
-
 import asyncio
 
-from relay.cli import Session
+from relay.cli.bootstrap.app import cli as bootstrap_cli
+from relay.cli.bootstrap.app import main as bootstrap_main
 
 
-async def main():
-    session = Session()
-    await session.start()
+async def main(argv: list[str] | None = None) -> int:
+    return await bootstrap_main(argv=argv)
+
+
+def cli(argv: list[str] | None = None) -> int:
+    return bootstrap_cli(argv=argv)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))

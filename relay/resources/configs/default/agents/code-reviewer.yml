@@ -1,0 +1,19 @@
+name: code-reviewer
+description: "Read-focused review agent for correctness, regressions, and test gaps"
+prompt:
+  - prompts/agents/code-reviewer.md
+  - prompts/suffixes/environments.md
+llm: default
+checkpointer: sqlite
+default: false
+recursion_limit: 1000
+tools:
+  patterns:
+    - impl:file_system:read_file
+    - impl:file_system:glob_files
+    - impl:file_system:grep_files
+    - impl:file_system:ls
+    - internal:*:*
+  output_max_tokens: 10000
+subagents:
+  - explorer

@@ -22,3 +22,15 @@ def test_session_defaults_pricing_from_settings() -> None:
 
     assert session.context.input_cost_per_mtok == 0.4
     assert session.context.output_cost_per_mtok == 1.6
+
+
+def test_session_accepts_agent_model_and_working_dir(tmp_path) -> None:
+    session = Session(
+        working_dir=tmp_path,
+        agent_name="claude-style-coder",
+        model_name="gpt-5.1-codex-mini",
+    )
+
+    assert session.context.working_dir == str(tmp_path.resolve())
+    assert session.context.agent == "claude-style-coder"
+    assert session.context.model == "gpt-5.1-codex-mini"
