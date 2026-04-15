@@ -29,6 +29,8 @@ class LLMSettings(BaseSettings):
 
     model: str = "gpt-4.1-mini"
     openai_api_key: SecretStr
+    input_cost_per_mtok: float = 0.0
+    output_cost_per_mtok: float = 0.0
 
 
 class Settings(BaseSettings):

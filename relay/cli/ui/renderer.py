@@ -52,7 +52,10 @@ def render_tool_call(name: str, args: dict) -> None:
         ⚙ tool_name
           key: value (truncated)
     """
-    header = Text(f"  ⚙ {name}", style="indicator bold")
+    header = Text(
+        f"  ⚙ {name}",
+        style=console.get_style("indicator", bold=True),
+    )
     console.print(header)
     for key, value in args.items():
         display = str(value)
@@ -63,7 +66,10 @@ def render_tool_call(name: str, args: dict) -> None:
 
 def render_tool_error(name: str, error: str) -> None:
     """Show a tool error result."""
-    console.print(f"  ✗ {name}: {error}", style="error bold")
+    console.print(
+        f"  ✗ {name}: {error}",
+        style=console.get_style("error", bold=True),
+    )
 
 
 def render_cost_summary(
@@ -84,7 +90,10 @@ def render_cost_summary(
 
 def render_error(message: str) -> None:
     """Display an error message."""
-    console.print(f"Error: {message}", style="error bold")
+    console.print(
+        f"Error: {message}",
+        style=console.get_style("error", bold=True),
+    )
 
 
 def render_info(message: str) -> None:

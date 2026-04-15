@@ -16,6 +16,7 @@ from relay.cli.dispatchers.messages import MessageDispatcher
 from relay.cli.handlers.threads import ThreadManager
 from relay.cli.ui.prompt import InteractivePrompt
 from relay.cli.ui.renderer import render_info
+from relay.settings import get_settings
 
 
 class Session:
@@ -26,7 +27,7 @@ class Session:
     """
 
     def __init__(self, context: Context | None = None) -> None:
-        self.context = context or Context()
+        self.context = context or self._build_default_context()
 
         # Set by start() inside the initializer context manager.
         self.graph = None
@@ -36,6 +37,15 @@ class Session:
         self.threads = ThreadManager()
         self.message_dispatcher = MessageDispatcher(self)
         self.command_dispatcher = CommandDispatcher(self)
+
+    @staticmethod
+    def _build_default_context() -> Context:
+        """Create the default CLI context from runtime settings."""
+        settings = get_settings()
+        return Context(
+            input_cost_per_mtok=settings.llm.input_cost_per_mtok,
+            output_cost_per_mtok=settings.llm.output_cost_per_mtok,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle

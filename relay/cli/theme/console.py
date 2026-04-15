@@ -12,6 +12,7 @@ Langrepl equivalent:
 from __future__ import annotations
 
 from rich.console import Console
+from rich.style import Style
 
 from relay.cli.theme.base import BaseTheme
 
@@ -30,6 +31,13 @@ class ThemedConsole:
     def print(self, *args, **kwargs) -> None:  # noqa: A003 – shadows builtin
         """Proxy to ``Console.print``."""
         self.console.print(*args, **kwargs)
+
+    def get_style(self, name: str, *, bold: bool = False) -> Style:
+        """Resolve a semantic theme style and apply additional attributes."""
+        style = self.console.get_style(name)
+        if not bold:
+            return style
+        return Style.combine([style, Style(bold=True)])
 
     # -- Semantic helpers --------------------------------------------------
 

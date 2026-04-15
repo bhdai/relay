@@ -2,8 +2,8 @@
 
 ``ResumeHandler`` owns the ``/resume`` command workflow:
 
-1. Load persisted threads from the checkpointer.
-2. Let the user pick a thread (via ``ThreadManager``).
+1. Query the checkpointer for persisted threads (via ``ThreadManager``).
+2. Let the user pick a thread from a list with real message previews.
 3. Switch the session context to the chosen thread.
 4. If the thread has pending interrupts, prompt and resume.
 
@@ -35,10 +35,12 @@ class ResumeHandler:
     async def handle(self, prompt_session: PromptSession) -> None:
         """Show thread list, switch context, and handle pending interrupts."""
         checkpointer = getattr(self.session.graph, "checkpointer", None)
-        if checkpointer:
-            await self.session.threads.load_persisted_threads(checkpointer)
 
-        selected = await self.session.threads.select_thread(prompt_session)
+        selected = await self.session.threads.select_thread(
+            prompt_session,
+            checkpointer=checkpointer,
+            current_thread_id=self.session.context.thread_id,
+        )
         if not selected:
             return
 
