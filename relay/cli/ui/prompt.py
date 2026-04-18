@@ -49,7 +49,7 @@ class InteractivePrompt:
 
     def _build_session(self) -> PromptSession:
         kb = self._create_key_bindings()
-        style = create_prompt_style()
+        style = create_prompt_style(self.context.approval_mode)
 
         return PromptSession(
             history=InMemoryHistory(),
@@ -92,6 +92,13 @@ class InteractivePrompt:
             """Insert a literal newline for multiline editing."""
             event.current_buffer.insert_text("\n")
 
+        @kb.add(Keys.BackTab)
+        def _shift_tab(event):
+            """Cycle approval mode for HITL prompts."""
+            self.context.cycle_approval_mode()
+            self._session.style = create_prompt_style(self.context.approval_mode)
+            event.app.invalidate()
+
         return kb
 
     # ------------------------------------------------------------------
@@ -106,6 +113,7 @@ class InteractivePrompt:
             self.context.thread_id,
             agent_name=self.context.agent,
             model_name=self.context.model,
+            approval_mode=self.context.approval_mode,
         )
 
     def _reset_ctrl_c(self) -> None:
@@ -131,6 +139,10 @@ class InteractivePrompt:
     def session(self) -> PromptSession:
         """Underlying ``PromptSession`` (for handlers that need it)."""
         return self._session
+
+    def refresh_style(self) -> None:
+        """Refresh prompt style after external approval-mode changes."""
+        self._session.style = create_prompt_style(self.context.approval_mode)
 
     async def get_input(self) -> str | None:
         """Read a line of input, returning ``None`` on EOF/interrupt."""

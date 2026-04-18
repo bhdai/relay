@@ -8,17 +8,24 @@ from langchain_core.messages import ToolMessage
 
 from relay.agents.context import AgentContext
 from relay.middlewares.sandbox import SandboxMiddleware
-from relay.sandboxes.backend import SandboxBackend
+from relay.sandboxes.backend import SandboxBackend, SandboxBinding
 
 
 class _FakeBackend(SandboxBackend):
     """Minimal in-process backend for tests."""
 
     def __init__(self, result: dict | None = None) -> None:
+        # Skip the base __init__ (requires a real config + working_dir).
         self._result = result or {"success": True, "content": "sandboxed-output"}
 
-    async def execute(self, *, module_path, tool_name, args, tool_runtime):
+    async def execute(self, *, module_path, tool_name, args, tool_runtime=None, timeout=120.0):
         return self._result
+
+    def build_command(self, command, extra_env=None):
+        return command
+
+    def validate_environment(self):
+        pass
 
 
 def _make_request(
@@ -48,8 +55,8 @@ class TestSandboxMiddleware:
 
     @pytest.mark.asyncio
     async def test_blocked_tool_returns_error(self):
-        """A tool not in the map should be blocked."""
-        mw = SandboxMiddleware(tool_sandbox_map={})
+        """A tool not matching any binding should be blocked."""
+        mw = SandboxMiddleware.from_tool_map({})
         request = _make_request()
         handler = AsyncMock()
 
@@ -63,7 +70,7 @@ class TestSandboxMiddleware:
     @pytest.mark.asyncio
     async def test_none_backend_passes_through(self):
         """A tool mapped to None should execute normally (no sandbox)."""
-        mw = SandboxMiddleware(tool_sandbox_map={"test_tool": None})
+        mw = SandboxMiddleware.from_tool_map({"test_tool": None})
         request = _make_request()
         handler = AsyncMock(
             return_value=ToolMessage(
@@ -80,7 +87,7 @@ class TestSandboxMiddleware:
     async def test_sandboxed_execution_success(self):
         """Tool routed through backend should return backend content."""
         backend = _FakeBackend({"success": True, "content": "sandbox-result"})
-        mw = SandboxMiddleware(tool_sandbox_map={"test_tool": backend})
+        mw = SandboxMiddleware.from_tool_map({"test_tool": backend})
         request = _make_request()
         handler = AsyncMock()
 
@@ -99,7 +106,7 @@ class TestSandboxMiddleware:
             "error": "permission denied",
             "traceback": "Traceback: ...",
         })
-        mw = SandboxMiddleware(tool_sandbox_map={"test_tool": backend})
+        mw = SandboxMiddleware.from_tool_map({"test_tool": backend})
         request = _make_request()
         handler = AsyncMock()
 
@@ -114,7 +121,7 @@ class TestSandboxMiddleware:
     async def test_no_tool_reference_falls_through(self):
         """If request.tool is None, fall through to handler."""
         backend = _FakeBackend()
-        mw = SandboxMiddleware(tool_sandbox_map={"test_tool": backend})
+        mw = SandboxMiddleware.from_tool_map({"test_tool": backend})
         request = _make_request()
         request.tool = None
         handler = AsyncMock(
@@ -126,3 +133,34 @@ class TestSandboxMiddleware:
         result = await mw.awrap_tool_call(request, handler)
         assert result.content == "fallback"
         handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_binding_based_resolution(self):
+        """SandboxMiddleware constructed with bindings resolves via patterns."""
+        backend = _FakeBackend({"success": True, "content": "via-binding"})
+        bindings = [
+            SandboxBinding(patterns=["impl:terminal:*"], backend=backend),
+            SandboxBinding(patterns=["internal:*:*"], backend=None),
+        ]
+        mw = SandboxMiddleware(
+            bindings,
+            tool_module_map={"run_command": "terminal", "manage_memory": "memory"},
+        )
+
+        # run_command matches impl:terminal:* → sandboxed
+        request = _make_request(tool_name="run_command")
+        handler = AsyncMock()
+        result = await mw.awrap_tool_call(request, handler)
+        assert result.content == "via-binding"
+        handler.assert_not_called()
+
+        # manage_memory matches internal:*:* → passthrough (None backend)
+        request2 = _make_request(tool_name="manage_memory")
+        handler2 = AsyncMock(
+            return_value=ToolMessage(
+                name="manage_memory", content="memory-ok", tool_call_id="call_1"
+            )
+        )
+        result2 = await mw.awrap_tool_call(request2, handler2)
+        assert result2.content == "memory-ok"
+        handler2.assert_called_once()

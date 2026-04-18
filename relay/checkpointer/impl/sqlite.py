@@ -12,6 +12,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+import aiosqlite
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
         Checkpoint,
         CheckpointMetadata,
         CheckpointTuple,
+        SerializerProtocol,
     )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,12 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
 
     @classmethod
     @asynccontextmanager
-    async def create(cls, *, connection_string: str) -> AsyncIterator[IndexedAsyncSqliteSaver]:
+    async def create(
+        cls,
+        *,
+        connection_string: str,
+        serde: SerializerProtocol | None = None,
+    ) -> AsyncIterator[IndexedAsyncSqliteSaver]:
         """Create and set up an ``IndexedAsyncSqliteSaver``.
 
         Usage::
@@ -52,12 +59,8 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
             async with IndexedAsyncSqliteSaver.create(connection_string=path) as cp:
                 ...
         """
-        async with cls.from_conn_string(connection_string) as saver:
-            # Downcast: from_conn_string returns AsyncSqliteSaver, but we
-            # need our subclass.  Re-create using the same connection.
-            instance = cls.__new__(cls)
-            instance.__dict__.update(saver.__dict__)
-            instance.__class__ = cls
+        async with aiosqlite.connect(connection_string) as conn:
+            instance = cls(conn, serde=serde)
             await instance.setup()
             yield instance
 

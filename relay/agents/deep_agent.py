@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from relay.agents.context import AgentContext
     from relay.agents.state import AgentState
+    from relay.sandboxes.backend import SandboxBinding
 
 
 def create_deep_agent(
@@ -34,12 +35,21 @@ def create_deep_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     name: str | None = None,
+    sandbox_bindings: list[SandboxBinding] | None = None,
+    tool_module_map: dict[str, str] | None = None,
 ) -> CompiledStateGraph:
     """Create a coordinator agent that can delegate to subagents.
 
     If *subagent_configs* is provided, a ``task`` tool is built and
     appended to *tools*.  Otherwise, this is equivalent to calling
     ``create_react_agent`` directly.
+
+    Parameters
+    ----------
+    sandbox_bindings:
+        Forwarded to ``create_react_agent`` for sandbox middleware.
+    tool_module_map:
+        Forwarded to ``create_react_agent`` for sandbox pattern matching.
     """
 
     all_tools = list(tools)
@@ -59,4 +69,6 @@ def create_deep_agent(
         checkpointer=checkpointer,
         store=store,
         name=name,
+        sandbox_bindings=sandbox_bindings,
+        tool_module_map=tool_module_map,
     )

@@ -2,15 +2,15 @@
 
 These Pydantic models represent the YAML-serialisable definitions that
 live under ``relay/resources/configs/default/`` (or a project-local
-``.relay/`` directory).  The schemas intentionally mirror the
-structure of langrepl's ``configs/agent.py`` but omit features that
-relay has not adopted yet (sandbox, skills, compression, versioning /
-migration).
+``.relay/`` directory).  The schemas mirror the structure of langrepl's
+``configs/agent.py``.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+
+from relay.configs.sandbox import AgentSandboxConfig
 
 
 # ==============================================================================
@@ -72,6 +72,10 @@ class BaseAgentConfig(BaseModel):
     tools: ToolsConfig | None = Field(
         default=None,
         description="Tool surface configuration",
+    )
+    sandbox: AgentSandboxConfig | None = Field(
+        default=None,
+        description="Sandbox configuration for this agent's tool execution",
     )
     recursion_limit: int = Field(
         default=100,

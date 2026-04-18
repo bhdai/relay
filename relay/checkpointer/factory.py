@@ -24,6 +24,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
 from relay.checkpointer.base import BaseCheckpointer
 from relay.checkpointer.impl.memory import MemoryCheckpointer
 from relay.checkpointer.impl.sqlite import IndexedAsyncSqliteSaver
@@ -31,6 +33,17 @@ from relay.checkpointer.impl.sqlite import IndexedAsyncSqliteSaver
 # Default storage directory, relative to the working directory.
 _RELAY_DIR = ".relay"
 _DB_FILENAME = "checkpoints.db"
+
+# Keep serializer allowlist in one place so both memory/sqlite
+# backends deserialize approval interrupts without warnings.
+_ALLOWED_MSGPACK_MODULES: list[tuple[str, str]] = [
+    ("relay.middlewares.approval", "InterruptPayload"),
+]
+
+
+def _build_checkpoint_serializer() -> JsonPlusSerializer:
+    """Create a JsonPlus serializer with relay-specific msgpack allowlist."""
+    return JsonPlusSerializer(allowed_msgpack_modules=_ALLOWED_MSGPACK_MODULES)
 
 
 def _ensure_db_path(working_dir: str | None = None) -> str:
@@ -82,9 +95,12 @@ async def create_checkpointer(
         Defaults to ``os.getcwd()``.
     """
     if backend == "memory":
-        yield MemoryCheckpointer()
+        yield MemoryCheckpointer(serde=_build_checkpoint_serializer())
         return
 
     db_path = _ensure_db_path(working_dir)
-    async with IndexedAsyncSqliteSaver.create(connection_string=db_path) as saver:
+    async with IndexedAsyncSqliteSaver.create(
+        connection_string=db_path,
+        serde=_build_checkpoint_serializer(),
+    ) as saver:
         yield saver

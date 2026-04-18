@@ -25,6 +25,7 @@ from relay.agents.state import AgentState
 from relay.configs.llm import LLMConfig, LLMProvider
 from relay.llms.factory import LLMFactory
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
+from relay.sandboxes.factory import SandboxFactory
 from relay.settings import get_settings
 from relay.tools.factory import ToolFactory
 from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS, glob_files, grep_files, ls, read_file
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from relay.configs.agent import SubAgentConfig as DeclSubAgentConfig
     from relay.configs.registry import ConfigRegistry
     from relay.mcp.client import MCPClient
+    from relay.sandboxes.backend import SandboxBinding
     from relay.skills.factory import Skill, SkillFactory
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,7 @@ class AgentFactory:
         self._tool_factory = tool_factory or ToolFactory()
         self._skill_factory = skill_factory
         self._llm_factory = llm_factory or LLMFactory(get_settings())
+        self._sandbox_factory = SandboxFactory()
 
     # ------------------------------------------------------------------
     # LLM
@@ -577,6 +580,25 @@ class AgentFactory:
                     )
                 )
 
+        # ----------------------------------------------------------
+        # Sandbox bindings (optional)
+        # ----------------------------------------------------------
+        sandbox_bindings: list[SandboxBinding] | None = None
+        tool_module_map: dict[str, str] | None = None
+
+        if agent_cfg.sandbox and agent_cfg.sandbox.enabled:
+            sandbox_bindings = self._sandbox_factory.build_bindings(
+                agent_cfg.sandbox,
+                Path(self._registry.working_dir if self._registry else "."),
+            )
+            # Build a combined module map for sandbox pattern matching.
+            tool_module_map = {
+                **self._tool_factory.get_impl_module_map(),
+                **self._tool_factory.get_internal_module_map(),
+            }
+            if mcp_module_map:
+                tool_module_map.update(mcp_module_map)
+
         coordinator_llm_config = await self._resolve_llm_config(
             configured_llm_name=agent_cfg.llm,
         )
@@ -592,6 +614,8 @@ class AgentFactory:
             context_schema=AgentContext,
             checkpointer=checkpointer,
             name=agent_cfg.name,
+            sandbox_bindings=sandbox_bindings,
+            tool_module_map=tool_module_map,
         )
 
     # ------------------------------------------------------------------

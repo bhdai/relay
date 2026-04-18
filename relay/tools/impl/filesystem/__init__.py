@@ -44,6 +44,17 @@ FILE_SYSTEM_TOOLS = [
     ls,
 ]
 
+
+# Read-only discovery helpers should not require approval prompts.
+for _tool in (read_file, glob_files, grep_files, ls):
+    metadata = _tool.metadata or {}
+    approval_config = metadata.get("approval_config", {})
+    metadata["approval_config"] = {
+        **approval_config,
+        "always_approve": True,
+    }
+    _tool.metadata = metadata
+
 __all__ = [
     "EditOperation",
     "MoveOperation",

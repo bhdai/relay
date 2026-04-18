@@ -11,16 +11,33 @@ Langrepl equivalent:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
+from prompt_toolkit.completion import WordCompleter
 from langgraph.types import Interrupt
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.shortcuts import CompleteStyle
 
+from relay.cli.core.context import Context
+from relay.cli.ui.shared import create_bottom_toolbar, create_prompt_style
+from relay.configs.approval import ApprovalMode
 from relay.cli.theme import console
 
 
 class InterruptHandler:
     """Collect user input for LangGraph interrupt(s) and return resume data."""
+
+    def __init__(
+        self,
+        *,
+        context: Context,
+        on_mode_change: Callable[[ApprovalMode], None] | None = None,
+    ) -> None:
+        self.context = context
+        self.on_mode_change = on_mode_change
 
     async def handle(
         self, interrupts: list[Interrupt]
@@ -55,8 +72,31 @@ class InterruptHandler:
                     console.print(f"    {j}. {opt}", style="muted")
 
             # Collect user response.
+            kb = KeyBindings()
+
+            @kb.add(Keys.BackTab)
+            def _cycle_mode(event):
+                mode = self.context.cycle_approval_mode()
+                if self.on_mode_change is not None:
+                    self.on_mode_change(mode)
+                session.style = create_prompt_style(self.context.approval_mode)
+                event.app.invalidate()
+
             try:
-                session = PromptSession()
+                session = PromptSession(
+                    completer=WordCompleter(options, ignore_case=True),
+                    complete_style=CompleteStyle.COLUMN,
+                    complete_while_typing=False,
+                    key_bindings=kb,
+                    style=create_prompt_style(self.context.approval_mode),
+                    bottom_toolbar=lambda: create_bottom_toolbar(
+                        "0.1.0",
+                        self.context.thread_id,
+                        agent_name=self.context.agent,
+                        model_name=self.context.model,
+                        approval_mode=self.context.approval_mode,
+                    ),
+                )
                 answer = await session.prompt_async("  → ")
             except (EOFError, KeyboardInterrupt):
                 return None

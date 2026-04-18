@@ -2,9 +2,13 @@
 
 When sandboxing is enabled, the middleware intercepts tool calls and
 routes them through a ``SandboxBackend`` which runs the tool in a
-restricted subprocess.  Tools not present in the ``tool_sandbox_map``
-are blocked entirely (the agent receives an error message).  Tools
-mapped to ``None`` execute normally (no sandbox).
+restricted subprocess.  Tools that match no binding are blocked
+entirely.  Tools matched to a binding with ``backend=None`` execute
+normally (unsandboxed passthrough).
+
+Binding resolution uses the same three-part pattern format as the tool
+factory (``impl:terminal:run_command``, ``internal:*:*``).  The first
+matching binding wins.
 """
 
 from __future__ import annotations
@@ -20,11 +24,12 @@ from langgraph.types import Command
 from relay.agents.context import AgentContext
 from relay.agents.state import AgentState
 from relay.utils.messages import create_tool_message
+from relay.utils.patterns import matches_patterns, two_part_matcher
 
 if TYPE_CHECKING:
     from langchain.tools.tool_node import ToolCallRequest
 
-    from relay.sandboxes.backend import SandboxBackend
+    from relay.sandboxes.backend import SandboxBackend, SandboxBinding
 
 logger = logging.getLogger(__name__)
 
@@ -34,40 +39,84 @@ class SandboxMiddleware(AgentMiddleware[AgentState, AgentContext]):
 
     Parameters
     ----------
-    tool_sandbox_map:
-        Mapping from tool name to the ``SandboxBackend`` that should
-        execute it, or ``None`` for unsandboxed passthrough.  Tools
-        **not** in the map are blocked.
+    bindings:
+        Ordered list of ``SandboxBinding`` objects.  Each binding maps
+        tool patterns to a backend (or ``None`` for passthrough).
+        The first matching binding wins.  If no binding matches, the
+        tool call is blocked.
+    tool_module_map:
+        Maps tool name → module name (e.g. ``"run_command"`` →
+        ``"terminal"``).  Used together with *bindings* patterns for
+        three-part pattern resolution.
     """
 
     def __init__(
         self,
-        tool_sandbox_map: dict[str, SandboxBackend | None],
+        bindings: list[SandboxBinding],
+        tool_module_map: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
-        self.tool_sandbox_map = tool_sandbox_map
+        self.bindings = bindings
+        self.tool_module_map = tool_module_map or {}
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_sandbox_backend(
+    def _resolve_backend(
         self,
         tool_name: str,
     ) -> tuple[SandboxBackend | None, bool]:
-        """Look up the backend for *tool_name*.
+        """Find the first matching binding for *tool_name*.
 
         Returns
         -------
         (backend, is_blocked)
             *backend* is ``None`` when the tool should run unsandboxed.
-            *is_blocked* is ``True`` when *tool_name* is not in the map
-            at all (the call should be rejected).
+            *is_blocked* is ``True`` when no binding matched at all.
         """
-        if tool_name not in self.tool_sandbox_map:
-            return None, True  # blocked
+        module = self.tool_module_map.get(tool_name, "")
 
-        return self.tool_sandbox_map[tool_name], False
+        for binding in self.bindings:
+            matcher = two_part_matcher(tool_name, module)
+            # Bindings use three-part patterns (category:module:name).
+            # Strip the category prefix before matching so the 2-part
+            # matcher works correctly.
+            stripped = [
+                ":".join(p.split(":")[1:]) if p.count(":") >= 2 else p
+                for p in binding.patterns
+            ]
+            if matches_patterns(stripped, matcher):
+                return binding.backend, False
+
+        return None, True  # blocked
+
+    # ------------------------------------------------------------------
+    # Legacy dict-based interface (kept for existing tests)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_tool_map(
+        cls,
+        tool_sandbox_map: dict[str, SandboxBackend | None],
+    ) -> SandboxMiddleware:
+        """Construct from a simple ``{tool_name: backend | None}`` dict.
+
+        This preserves backward compatibility with the original API
+        and existing tests.
+        """
+        from relay.sandboxes.backend import SandboxBinding
+
+        bindings: list[SandboxBinding] = []
+        for tool_name, backend in tool_sandbox_map.items():
+            bindings.append(
+                SandboxBinding(
+                    patterns=[f"*:*:{tool_name}"],
+                    backend=backend,
+                )
+            )
+
+        return cls(bindings)
 
     # ------------------------------------------------------------------
     # Middleware hook
@@ -82,9 +131,9 @@ class SandboxMiddleware(AgentMiddleware[AgentState, AgentContext]):
         tool_name = request.tool_call["name"]
         tool_call_id = str(request.tool_call["id"])
 
-        backend, is_blocked = self._get_sandbox_backend(tool_name)
+        backend, is_blocked = self._resolve_backend(tool_name)
 
-        # ----- Blocked tool (not in the sandbox map) -----
+        # ----- Blocked tool (no binding matched) -----
         if is_blocked:
             return create_tool_message(
                 result=f"Tool '{tool_name}' blocked: no sandbox pattern matched",
@@ -121,9 +170,7 @@ class SandboxMiddleware(AgentMiddleware[AgentState, AgentContext]):
             else tool.name
         )
 
-        # Serialize the runtime for the subprocess.
-        # TODO: Implement full runtime serialization once the sandbox
-        # worker protocol is defined.
+        # Serialize the runtime context for the subprocess.
         tool_runtime: dict[str, Any] = {}
         if request.runtime and request.runtime.context:
             ctx = request.runtime.context

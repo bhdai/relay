@@ -218,6 +218,31 @@ class ApprovalMiddleware(AgentMiddleware[AgentState, AgentContext]):
             name_only = tool_config.get("name_only", False)
             always_approve = tool_config.get("always_approve", False)
 
+        # Catalog-proxy tools (e.g. run_tool) should enforce approval
+        # using the underlying tool's metadata and arguments.
+        if tool_config.get("is_catalog_proxy"):
+            underlying_tool_name = tool_args.get("tool_name")
+            raw_underlying_args = tool_args.get("tool_args", {})
+            underlying_tool_args = (
+                raw_underlying_args if isinstance(raw_underlying_args, dict) else {}
+            )
+
+            if isinstance(underlying_tool_name, str) and underlying_tool_name:
+                underlying_tool = next(
+                    (t for t in context.tool_catalog if t.name == underlying_tool_name),
+                    None,
+                )
+
+                if underlying_tool is not None:
+                    tool_name = underlying_tool_name
+                    tool_args = underlying_tool_args
+                    tool_metadata = underlying_tool.metadata or {}
+                    tool_config = tool_metadata.get("approval_config", {})
+                    format_args_fn = tool_config.get("format_args_fn")
+                    render_args_fn = tool_config.get("render_args_fn")
+                    name_only = tool_config.get("name_only", False)
+                    always_approve = tool_config.get("always_approve", False)
+
         if always_approve:
             return ALLOW
 

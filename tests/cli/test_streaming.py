@@ -9,6 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 from relay.cli.core.streaming import stream_response
+from relay.configs.approval import ApprovalMode
 
 
 class _FakeGraph:
@@ -124,11 +125,13 @@ async def test_stream_response_passes_pricing_into_agent_context() -> None:
         thread_id="thread-1",
         input_cost_per_mtok=0.4,
         output_cost_per_mtok=1.6,
+        approval_mode=ApprovalMode.AGGRESSIVE,
     )
 
     assert graph.last_context is not None
     assert graph.last_context.input_cost_per_mtok == 0.4
     assert graph.last_context.output_cost_per_mtok == 1.6
+    assert graph.last_context.approval_mode == ApprovalMode.AGGRESSIVE
 
 
 @pytest.mark.asyncio

@@ -204,6 +204,7 @@ def _make_request(
     approval_mode: ApprovalMode = ApprovalMode.AGGRESSIVE,
     working_dir: str = "/tmp",
     tool_metadata: dict | None = None,
+    tool_catalog: list | None = None,
 ) -> Mock:
     """Build a mock ToolCallRequest."""
     mock_tool = Mock()
@@ -220,6 +221,7 @@ def _make_request(
     request.runtime.context = AgentContext(
         approval_mode=approval_mode,
         working_dir=working_dir,
+        tool_catalog=tool_catalog or [],
     )
     return request
 
@@ -316,6 +318,37 @@ class TestAwrapToolCall:
 
         result = await middleware.awrap_tool_call(request, handler)
         assert result.content == "ok"
+        handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_catalog_proxy_uses_underlying_tool_metadata(self):
+        """run_tool approval should use the underlying tool approval config."""
+        middleware = ApprovalMiddleware()
+
+        underlying_tool = Mock()
+        underlying_tool.name = "unsafe_tool"
+        underlying_tool.metadata = {"approval_config": {"always_approve": True}}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = _make_request(
+                tool_name="run_tool",
+                args={"tool_name": "unsafe_tool", "tool_args": {"path": "x"}},
+                approval_mode=ApprovalMode.SEMI_ACTIVE,
+                working_dir=tmpdir,
+                tool_metadata={"approval_config": {"is_catalog_proxy": True}},
+                tool_catalog=[underlying_tool],
+            )
+            handler = AsyncMock(
+                return_value=ToolMessage(
+                    name="run_tool", content="proxied", tool_call_id="call_1"
+                )
+            )
+
+            with patch("relay.middlewares.approval.interrupt") as interrupt_mock:
+                result = await middleware.awrap_tool_call(request, handler)
+
+        assert result.content == "proxied"
+        interrupt_mock.assert_not_called()
         handler.assert_called_once()
 
 

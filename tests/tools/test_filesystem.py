@@ -11,6 +11,10 @@ from relay.tools.impl.filesystem import (
     _glob_match,
     _grep_match,
     _paginate_file,
+    glob_files,
+    grep_files,
+    ls,
+    read_file,
     walk_files,
 )
 
@@ -250,3 +254,17 @@ class TestGrepMatch:
             tmp_path, iter(files), "missing", is_regex=False, max_results=100,
         )
         assert matches == []
+
+
+# ==============================================================================
+# Tool metadata
+# ==============================================================================
+
+
+class TestApprovalMetadata:
+    """Read-only discovery tools should bypass approval prompts."""
+
+    def test_read_only_tools_are_always_approved(self):
+        for tool in (read_file, glob_files, grep_files, ls):
+            approval_config = (tool.metadata or {}).get("approval_config", {})
+            assert approval_config.get("always_approve") is True

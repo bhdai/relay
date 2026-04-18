@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
+from relay.configs.approval import ApprovalMode
+
 
 @dataclass
 class Context:
@@ -32,6 +34,9 @@ class Context:
 
     # Active conversation thread.
     thread_id: str = field(default_factory=lambda: str(uuid4()))
+
+    # Human-in-the-loop approval policy for tool calls.
+    approval_mode: ApprovalMode = ApprovalMode.SEMI_ACTIVE
 
     # Cumulative token / cost counters across all turns.
     total_input_tokens: int = 0
@@ -53,6 +58,13 @@ class Context:
         """Switch to a fresh thread and return the new thread_id."""
         self.thread_id = str(uuid4())
         return self.thread_id
+
+    def cycle_approval_mode(self) -> ApprovalMode:
+        """Cycle approval mode in declaration order."""
+        modes = list(ApprovalMode)
+        idx = modes.index(self.approval_mode)
+        self.approval_mode = modes[(idx + 1) % len(modes)]
+        return self.approval_mode
 
     def accumulate(
         self,

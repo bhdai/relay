@@ -11,16 +11,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command, Interrupt
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from relay.agents.context import AgentContext
+from relay.configs.approval import ApprovalMode
 from relay.cli.theme import console
+from relay.cli.ui.shared import create_bottom_toolbar, create_prompt_style
 from relay.cli.ui.renderer import (
     assistant_message_has_renderable_content,
     assistant_message_text,
@@ -75,6 +79,10 @@ def _load_user_memory(working_dir: str | None = None) -> str:
 
 async def prompt_for_interrupt(
     interrupts: list[Interrupt],
+    *,
+    context: AgentContext,
+    thread_id: str,
+    on_approval_mode_change: Callable[[ApprovalMode], None] | None = None,
 ) -> dict[str, Any] | None:
     """Prompt the user for each pending interrupt.
 
@@ -106,8 +114,30 @@ async def prompt_for_interrupt(
                 console.print(f"    {j}. {opt}", style="muted")
 
         # Collect user response.
+        kb = KeyBindings()
+
+        @kb.add(Keys.BackTab)
+        def _cycle_mode(event):
+            modes = list(ApprovalMode)
+            idx = modes.index(context.approval_mode)
+            context.approval_mode = modes[(idx + 1) % len(modes)]
+
+            if on_approval_mode_change is not None:
+                on_approval_mode_change(context.approval_mode)
+
+            session.style = create_prompt_style(context.approval_mode)
+            event.app.invalidate()
+
         try:
-            session = PromptSession()
+            session = PromptSession(
+                key_bindings=kb,
+                style=create_prompt_style(context.approval_mode),
+                bottom_toolbar=lambda: create_bottom_toolbar(
+                    "0.1.0",
+                    thread_id,
+                    approval_mode=context.approval_mode,
+                ),
+            )
             answer = await session.prompt_async("  → ")
         except (EOFError, KeyboardInterrupt):
             return None
@@ -438,6 +468,8 @@ async def stream_response(
     working_dir: str | None = None,
     input_cost_per_mtok: float = 0.0,
     output_cost_per_mtok: float = 0.0,
+    approval_mode: ApprovalMode = ApprovalMode.SEMI_ACTIVE,
+    on_approval_mode_change: Callable[[ApprovalMode], None] | None = None,
 ) -> _TurnStats:
     """Stream the graph response, handling interrupts automatically.
 
@@ -462,6 +494,7 @@ async def stream_response(
         user_memory=_load_user_memory(working_dir),
         input_cost_per_mtok=input_cost_per_mtok,
         output_cost_per_mtok=output_cost_per_mtok,
+        approval_mode=approval_mode,
     )
     stats = _TurnStats()
     display_state = _DisplayState()
@@ -517,7 +550,12 @@ async def stream_response(
                 if raw_interrupts:
                     _close_open_text_line(stats)
 
-                    resume_value = await prompt_for_interrupt(raw_interrupts)
+                    resume_value = await prompt_for_interrupt(
+                        raw_interrupts,
+                        context=context,
+                        thread_id=thread_id,
+                        on_approval_mode_change=on_approval_mode_change,
+                    )
                     if resume_value is not None:
                         current_input = Command(resume=resume_value)
                         interrupted = True

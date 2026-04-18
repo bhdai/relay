@@ -20,6 +20,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from relay.cli.core.streaming import stream_response
+from relay.configs.approval import ApprovalMode
 from relay.cli.handlers.interrupts import InterruptHandler
 from relay.cli.ui.renderer import render_cost_summary, render_error, render_info
 
@@ -32,9 +33,17 @@ class MessageDispatcher:
 
     def __init__(self, session: Session) -> None:
         self.session = session
-        self.interrupt_handler = InterruptHandler()
+        self.interrupt_handler = InterruptHandler(
+            context=self.session.context,
+            on_mode_change=self._on_approval_mode_change,
+        )
         self._stream_task: asyncio.Task | None = None
         self._original_sigint = signal.getsignal(signal.SIGINT)
+
+    def _on_approval_mode_change(self, mode: ApprovalMode) -> None:
+        """Persist mode changes made from interrupt prompts."""
+        self.session.context.approval_mode = mode
+        self.session.prompt.refresh_style()
 
     # ------------------------------------------------------------------
     # Public API
@@ -109,6 +118,8 @@ class MessageDispatcher:
                 working_dir=self.session.context.working_dir,
                 input_cost_per_mtok=self.session.context.input_cost_per_mtok,
                 output_cost_per_mtok=self.session.context.output_cost_per_mtok,
+                approval_mode=self.session.context.approval_mode,
+                on_approval_mode_change=self._on_approval_mode_change,
             )
         except asyncio.CancelledError:
             render_info("\n  (cancelled)")

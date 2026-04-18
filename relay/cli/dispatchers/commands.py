@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from relay.configs.approval import ApprovalMode
 from relay.cli.handlers.resume import ResumeHandler
 from relay.cli.theme import console
 from relay.cli.ui.renderer import render_cost_summary, render_error, render_info
@@ -33,6 +34,8 @@ class CommandDispatcher:
             "/help": "Show available commands",
             "/new": "Start a new conversation thread",
             "/resume": "Resume a previous thread",
+            "/approval": "Cycle/set approval mode (semi-active|active|aggressive)",
+            "/approve": "Alias for /approval",
             "/cost": "Show cumulative token cost",
             "/exit": "Exit the REPL (also: exit, quit, stop)",
         }
@@ -48,7 +51,13 @@ class CommandDispatcher:
             Extra context forwarded to individual handlers (e.g.
             ``prompt_session`` for ``/resume``).
         """
-        cmd = command.strip().lower()
+        parts = command.strip().lower().split()
+        if not parts:
+            render_error("Empty command. Type /help for options.")
+            return False
+
+        cmd = parts[0]
+        args = parts[1:]
 
         if cmd == "/help":
             for name, desc in self.commands.items():
@@ -65,6 +74,32 @@ class CommandDispatcher:
             prompt_session = kwargs.get("prompt_session")
             assert prompt_session is not None, "/resume requires a prompt_session"
             await self.resume_handler.handle(prompt_session)
+            return False
+
+        if cmd in ("/approval", "/approve"):
+            if not args:
+                mode = self.session.context.cycle_approval_mode()
+                self.session.prompt.refresh_style()
+                render_info(f"Approval mode: {mode.value}")
+                return False
+
+            raw = args[0]
+            aliases = {
+                "semi": ApprovalMode.SEMI_ACTIVE,
+                "semi-active": ApprovalMode.SEMI_ACTIVE,
+                "active": ApprovalMode.ACTIVE,
+                "aggressive": ApprovalMode.AGGRESSIVE,
+            }
+            mode = aliases.get(raw)
+            if mode is None:
+                render_error(
+                    "Invalid approval mode. Use: semi-active, active, aggressive"
+                )
+                return False
+
+            self.session.context.approval_mode = mode
+            self.session.prompt.refresh_style()
+            render_info(f"Approval mode: {mode.value}")
             return False
 
         if cmd == "/cost":

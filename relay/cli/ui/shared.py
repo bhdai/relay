@@ -14,14 +14,26 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 
 from relay.cli.theme import theme
+from relay.configs.approval import ApprovalMode
 
 
-def create_prompt_style() -> Style:
-    """Build a prompt-toolkit ``Style`` from the active theme."""
+def _prompt_color_for_mode(mode: ApprovalMode | None) -> str:
+    """Return prompt accent color for the current approval mode."""
+    if mode == ApprovalMode.ACTIVE:
+        return theme.warning_color
+    if mode == ApprovalMode.AGGRESSIVE:
+        return theme.error_color
+    return theme.prompt_color
+
+
+def create_prompt_style(approval_mode: ApprovalMode | None = None) -> Style:
+    """Build a prompt-toolkit ``Style`` from theme + approval mode."""
+    prompt_color = _prompt_color_for_mode(approval_mode)
+
     return Style.from_dict(
         {
             # Prompt caret / arrow
-            "prompt": f"{theme.prompt_color} bold",
+            "prompt": f"{prompt_color} bold",
             # Default text
             "": f"{theme.primary_text}",
             # Completion menu
@@ -40,6 +52,8 @@ def create_prompt_style() -> Style:
             # Bottom toolbar — override default reverse video
             "bottom-toolbar": f"noreverse {theme.muted_text}",
             "bottom-toolbar.text": f"noreverse {theme.muted_text}",
+            # Approval mode segment in toolbar
+            "toolbar.mode": f"noreverse {prompt_color}",
         }
     )
 
@@ -49,6 +63,7 @@ def create_bottom_toolbar(
     thread_id: str,
     agent_name: str | None = None,
     model_name: str | None = None,
+    approval_mode: ApprovalMode | None = None,
 ) -> HTML:
     """Build the bottom toolbar showing version and current thread.
 
@@ -74,4 +89,11 @@ def create_bottom_toolbar(
         segments.append(model_name)
 
     segments.append(f"thread {short_thread}")
-    return HTML(f"<muted> {' · '.join(segments)}</muted>")
+
+    if approval_mode is None:
+        return HTML(f"<muted> {' · '.join(segments)}</muted>")
+
+    base = " · ".join(segments)
+    return HTML(
+        f"<muted> {base} · </muted><toolbar.mode>{approval_mode.value}</toolbar.mode><muted> </muted>"
+    )
