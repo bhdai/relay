@@ -24,8 +24,8 @@ from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
 from relay.configs.llm import LLMConfig, LLMProvider
 from relay.llms.factory import LLMFactory
+from relay.permission.config import DEFAULT_PERMISSION, from_config, merge
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
-from relay.sandboxes.factory import SandboxFactory
 from relay.settings import get_settings
 from relay.tools.factory import ToolFactory
 from relay.tools.impl.filesystem import FILE_SYSTEM_TOOLS, glob_files, grep_files, ls, read_file
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from relay.configs.agent import SubAgentConfig as DeclSubAgentConfig
     from relay.configs.registry import ConfigRegistry
     from relay.mcp.client import MCPClient
-    from relay.sandboxes.backend import SandboxBinding
+    from relay.permission.schema import Ruleset
     from relay.skills.factory import Skill, SkillFactory
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,6 @@ class AgentFactory:
         self._tool_factory = tool_factory or ToolFactory()
         self._skill_factory = skill_factory
         self._llm_factory = llm_factory or LLMFactory(get_settings())
-        self._sandbox_factory = SandboxFactory()
 
     # ------------------------------------------------------------------
     # LLM
@@ -456,6 +455,28 @@ class AgentFactory:
         return [_explorer_config(), _worker_config()]
 
     # ------------------------------------------------------------------
+    # Permission ruleset construction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_permission_ruleset(agent_cfg: DeclAgentConfig) -> Ruleset:
+        """Build the resolved permission ruleset for an agent.
+
+        Merges ``DEFAULT_PERMISSION`` with any per-agent overrides declared
+        in the agent's YAML config.  Later entries win (last-match-wins),
+        so YAML overrides take precedence over the defaults.
+
+        Args:
+            agent_cfg: The declarative agent configuration from YAML.
+
+        Returns:
+            A flat ``Ruleset`` ready for use in ``PermissionMiddleware``.
+        """
+        defaults = from_config(DEFAULT_PERMISSION)
+        agent_overrides = from_config(agent_cfg.permission or {})
+        return merge(defaults, agent_overrides)
+
+    # ------------------------------------------------------------------
     # Graph assembly
     # ------------------------------------------------------------------
 
@@ -482,6 +503,8 @@ class AgentFactory:
         """
         llm_config = self._build_default_llm_config(model_name=self._model_name)
         model = self._model_from_config(llm_config)
+        # Hardcoded fallback uses DEFAULT_PERMISSION with no overrides.
+        permission_ruleset = from_config(DEFAULT_PERMISSION)
         return create_deep_agent(
             model=model,
             tools=self._coordinator_tools(),
@@ -492,6 +515,7 @@ class AgentFactory:
             context_schema=AgentContext,
             checkpointer=checkpointer,
             name="coordinator",
+            permission_ruleset=permission_ruleset,
         )
 
     async def create_from_config(
@@ -581,23 +605,10 @@ class AgentFactory:
                 )
 
         # ----------------------------------------------------------
-        # Sandbox bindings (optional)
+        # Permission ruleset
         # ----------------------------------------------------------
-        sandbox_bindings: list[SandboxBinding] | None = None
-        tool_module_map: dict[str, str] | None = None
-
-        if agent_cfg.sandbox and agent_cfg.sandbox.enabled:
-            sandbox_bindings = self._sandbox_factory.build_bindings(
-                agent_cfg.sandbox,
-                Path(self._registry.working_dir if self._registry else "."),
-            )
-            # Build a combined module map for sandbox pattern matching.
-            tool_module_map = {
-                **self._tool_factory.get_impl_module_map(),
-                **self._tool_factory.get_internal_module_map(),
-            }
-            if mcp_module_map:
-                tool_module_map.update(mcp_module_map)
+        # Merge DEFAULT_PERMISSION with any per-agent overrides from YAML.
+        permission_ruleset = self._build_permission_ruleset(agent_cfg)
 
         coordinator_llm_config = await self._resolve_llm_config(
             configured_llm_name=agent_cfg.llm,
@@ -614,8 +625,7 @@ class AgentFactory:
             context_schema=AgentContext,
             checkpointer=checkpointer,
             name=agent_cfg.name,
-            sandbox_bindings=sandbox_bindings,
-            tool_module_map=tool_module_map,
+            permission_ruleset=permission_ruleset,
         )
 
     # ------------------------------------------------------------------

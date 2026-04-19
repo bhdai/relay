@@ -39,7 +39,7 @@ def think(reflection: str) -> str:
     return f"Reflection recorded: {reflection}"
 
 
-think.metadata = {"approval_config": {"always_approve": True}}
+think.metadata = {"permission_config": {"permission": "think"}}
 
 PLANNING_TOOLS = [think]
 

@@ -10,6 +10,52 @@ from langchain_core.tools import ToolException, tool
 
 
 # ==============================================================================
+# Command prefix extraction
+# ==============================================================================
+
+
+def _command_prefix(command: str) -> str:
+    """Extract a meaningful command prefix for 'always' permission patterns.
+
+    Uses a heuristic rather than a full bash AST parser: split on the first
+    shell operator to isolate the primary command segment, then take the
+    command binary and — if the immediately following token does not start
+    with ``-`` — its first subcommand.
+
+    This covers the common cases (``git push``, ``npm install``,
+    ``cargo build``) without adding a tree-sitter dependency.
+
+    Examples::
+
+        "git push --force origin main"  → "git push"
+        "npm install foo"               → "npm install"
+        "ls -la /tmp"                   → "ls"
+        "rm -rf /"                      → "rm"
+        ""                              → "*"
+
+    Args:
+        command: Raw shell command string.
+
+    Returns:
+        A prefix string suitable for use in wildcard patterns, e.g.
+        ``"git push"`` (the caller appends ``" *"``).  Returns ``"*"``
+        when the command is empty.
+    """
+    # Isolate the primary segment before any ``&&``, ``||``, ``;``, or ``|``.
+    primary = re.split(r"\s*(&&|\|\||;|\|)\s*", command.strip(), maxsplit=1)[0]
+    parts = primary.split()
+
+    if not parts:
+        return "*"
+
+    cmd = parts[0]
+    # Include the subcommand only when it looks like a subcommand (no leading "-").
+    if len(parts) >= 2 and not parts[1].startswith("-"):
+        return f"{cmd} {parts[1]}"
+    return cmd
+
+
+# ==============================================================================
 # Command Parsing Helpers
 # ==============================================================================
 #
@@ -95,3 +141,26 @@ async def run_command(command: str) -> str:
 
 
 TERMINAL_TOOLS = [run_command]
+
+# ==============================================================================
+# Tool permission configuration
+# ==============================================================================
+#
+# run_command requests the "bash" permission, evaluated against the full
+# command string.  "always" patterns use a coarser prefix (e.g. "git push *")
+# so that approving one git-push command covers future push variants without
+# requiring a separate approval for every flag combination.
+
+run_command.metadata = {
+    "permission_config": {
+        "permission": "bash",
+        # The full command string is the concrete pattern being evaluated.
+        "patterns_fn": lambda args: [args.get("command", "*")],
+        # The "always" pattern uses the command prefix so that approving
+        # "git push" covers "git push --force", "git push origin main", etc.
+        "always_fn": lambda args: [
+            _command_prefix(args.get("command", "")) + " *"
+        ],
+        "metadata_fn": lambda args: {"command": args.get("command", "")},
+    }
+}

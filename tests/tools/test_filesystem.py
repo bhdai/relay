@@ -262,9 +262,12 @@ class TestGrepMatch:
 
 
 class TestApprovalMetadata:
-    """Read-only discovery tools should bypass approval prompts."""
+    """Read-only discovery tools should have a permission_config with the correct key."""
 
-    def test_read_only_tools_are_always_approved(self):
+    def test_read_only_tools_have_permission_config(self):
+        expected = {"read_file": "read", "glob_files": "glob", "grep_files": "grep", "ls": "list"}
         for tool in (read_file, glob_files, grep_files, ls):
-            approval_config = (tool.metadata or {}).get("approval_config", {})
-            assert approval_config.get("always_approve") is True
+            permission_config = (tool.metadata or {}).get("permission_config", {})
+            assert permission_config.get("permission") == expected[tool.name], (
+                f"{tool.name} should have permission '{expected[tool.name]}'"
+            )

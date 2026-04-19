@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from relay.agents.context import AgentContext
     from relay.agents.state import AgentState
-    from relay.sandboxes.backend import SandboxBinding
+    from relay.permission.schema import Ruleset
 
 
 def create_deep_agent(
@@ -35,8 +35,7 @@ def create_deep_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     name: str | None = None,
-    sandbox_bindings: list[SandboxBinding] | None = None,
-    tool_module_map: dict[str, str] | None = None,
+    permission_ruleset: Ruleset | None = None,
 ) -> CompiledStateGraph:
     """Create a coordinator agent that can delegate to subagents.
 
@@ -46,10 +45,10 @@ def create_deep_agent(
 
     Parameters
     ----------
-    sandbox_bindings:
-        Forwarded to ``create_react_agent`` for sandbox middleware.
-    tool_module_map:
-        Forwarded to ``create_react_agent`` for sandbox pattern matching.
+    permission_ruleset:
+        Resolved ``Ruleset`` forwarded to ``create_react_agent`` for
+        the ``PermissionMiddleware``.  When ``None``, the default
+        permission ruleset is applied.
     """
 
     all_tools = list(tools)
@@ -69,6 +68,5 @@ def create_deep_agent(
         checkpointer=checkpointer,
         store=store,
         name=name,
-        sandbox_bindings=sandbox_bindings,
-        tool_module_map=tool_module_map,
+        permission_ruleset=permission_ruleset,
     )

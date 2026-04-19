@@ -84,7 +84,7 @@ def think(reflection: str) -> str:
     return f"Reflection recorded: {reflection}"
 
 
-think.metadata = {"approval_config": {"always_approve": True}}
+think.metadata = {"permission_config": {"permission": "think"}}
 
 
 # ==============================================================================
@@ -350,5 +350,18 @@ def create_task_tool(
 
         return Command(update=update)
 
-    task.metadata = {"approval_config": {"always_approve": True}}
+    task.metadata = {
+        "permission_config": {
+            "permission": "task",
+            # The subagent type is the concrete value being evaluated.
+            "patterns_fn": lambda args: [args.get("subagent_type", "*")],
+            # Approving one subagent type with "always" covers future calls
+            # to the same subagent without re-prompting.
+            "always_fn": lambda args: [args.get("subagent_type", "*")],
+            "metadata_fn": lambda args: {
+                "subagent": args.get("subagent_type", ""),
+                "description": args.get("description", ""),
+            },
+        }
+    }
     return task

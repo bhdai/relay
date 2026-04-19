@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, Any
 from langchain.agents import create_agent
 
 from relay.middlewares import (
-    ApprovalMiddleware,
     CompressToolOutputMiddleware,
     PendingToolResultMiddleware,
     ReturnDirectMiddleware,
-    SandboxMiddleware,
     TokenCostMiddleware,
     create_dynamic_prompt_middleware,
 )
+from relay.middlewares.permission import PermissionMiddleware
+from relay.permission.config import DEFAULT_PERMISSION, from_config
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from relay.agents.context import AgentContext
     from relay.agents.state import AgentState
-    from relay.sandboxes.backend import SandboxBinding
+    from relay.permission.schema import Ruleset
 
 
 def create_react_agent(
@@ -42,8 +42,7 @@ def create_react_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     name: str | None = None,
-    sandbox_bindings: list[SandboxBinding] | None = None,
-    tool_module_map: dict[str, str] | None = None,
+    permission_ruleset: Ruleset | None = None,
 ):
     """Create a ReAct agent with relay's standard middleware stack.
 
@@ -53,14 +52,33 @@ def create_react_agent(
     - ``after_*`` hooks: last to first (reverse)
     - ``wrap_*`` hooks: nested (first middleware wraps all others)
 
+    The wrapToolCall chain is:
+
+        ``PermissionMiddleware`` → ``CompressToolOutputMiddleware`` → tool
+
+    ``PermissionMiddleware`` gates every tool call against the agent's
+    permission ruleset.  It interrupts for user approval on ``"ask"``
+    rules and blocks outright on ``"deny"`` rules.
+    ``CompressToolOutputMiddleware`` post-processes tool results to keep
+    token usage bounded.
+
     Parameters
     ----------
-    sandbox_bindings:
-        When provided and non-empty, ``SandboxMiddleware`` is inserted
-        between Approval and Compress in the wrapToolCall chain.
-    tool_module_map:
-        Maps tool name → module name for sandbox pattern matching.
+    permission_ruleset:
+        Resolved ``Ruleset`` for this agent.  When ``None``, the default
+        permission ruleset (``DEFAULT_PERMISSION``) is used.  Provide a
+        pre-merged ruleset from the factory for config-driven agents.
     """
+
+    # Resolve the effective ruleset.  The factory is responsible for merging
+    # DEFAULT_PERMISSION with any YAML overrides before calling here.
+    # When no ruleset is provided (e.g. direct construction in tests), fall
+    # back to DEFAULT_PERMISSION so that the agent has sensible defaults.
+    effective_ruleset: Ruleset = (
+        permission_ruleset
+        if permission_ruleset is not None
+        else from_config(DEFAULT_PERMISSION)
+    )
 
     # Group 0: Dynamic prompt — render template with runtime context.
     dynamic_prompt: list[AgentMiddleware[Any, Any]] = [
@@ -82,23 +100,16 @@ def create_react_agent(
         ReturnDirectMiddleware(),
     ]
 
-    # Group 4: wrapToolCall — wraps tool execution.
+    # Group 4: wrapToolCall — wraps tool execution (nested: first wraps all).
     #
-    # Execution is nested (first wraps all others):
-    #   Approval → [Sandbox →] Compress → tool execution
+    #   PermissionMiddleware → CompressToolOutputMiddleware → tool execution
     #
-    # The user must approve before the sandbox or tool runs.
-    # Compression post-processes the tool result to keep token usage bounded.
+    # Permission is checked before the tool runs.  Compression post-processes
+    # the result to bound token usage.
     wrap_tool_call: list[AgentMiddleware[Any, Any]] = [
-        ApprovalMiddleware(),
+        PermissionMiddleware(effective_ruleset),
+        CompressToolOutputMiddleware(model),
     ]
-
-    if sandbox_bindings:
-        wrap_tool_call.append(
-            SandboxMiddleware(sandbox_bindings, tool_module_map=tool_module_map)
-        )
-
-    wrap_tool_call.append(CompressToolOutputMiddleware(model))
 
     middlewares: list[AgentMiddleware[Any, Any]] = (
         dynamic_prompt + after_model + before_agent + before_model + wrap_tool_call

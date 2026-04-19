@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from relay.agents.context import AgentContext
 from relay.agents.react_agent import create_react_agent
 from relay.agents.state import AgentState
-from relay.middlewares import ApprovalMiddleware, CompressToolOutputMiddleware
+from relay.middlewares import CompressToolOutputMiddleware, PermissionMiddleware
 
 
 @tool
@@ -64,8 +64,8 @@ class TestCreateReactAgent:
             )
 
         middleware = mock_create.call_args.kwargs["middleware"]
-        approval_index = next(
-            i for i, m in enumerate(middleware) if isinstance(m, ApprovalMiddleware)
+        permission_index = next(
+            i for i, m in enumerate(middleware) if isinstance(m, PermissionMiddleware)
         )
         compress_index = next(
             i
@@ -73,4 +73,4 @@ class TestCreateReactAgent:
             if isinstance(m, CompressToolOutputMiddleware)
         )
 
-        assert approval_index < compress_index
+        assert permission_index < compress_index

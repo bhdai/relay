@@ -45,15 +45,69 @@ FILE_SYSTEM_TOOLS = [
 ]
 
 
-# Read-only discovery helpers should not require approval prompts.
+# ==============================================================================
+# Tool permission configuration
+# ==============================================================================
+#
+# Read-only discovery tools (read_file, glob_files, grep_files, ls) use their
+# respective permission keys so that fine-grained rules (e.g. "read: *.env →
+# ask") work correctly.  The "always" pattern is "*" — once you allow reading
+# you allow all reads, which matches Opencode's default behaviour.
+#
+# Write/mutating tools (write_file, edit_file, create_dir, move_file,
+# delete_file) all use the "edit" permission key.  File-path-specific patterns
+# let the ruleset distinguish individual files if needed.
+
 for _tool in (read_file, glob_files, grep_files, ls):
-    metadata = _tool.metadata or {}
-    approval_config = metadata.get("approval_config", {})
-    metadata["approval_config"] = {
-        **approval_config,
-        "always_approve": True,
+    _perm_key = {
+        "read_file": "read",
+        "glob_files": "glob",
+        "grep_files": "grep",
+        "ls": "list",
+    }[_tool.name]
+    # Use "file_path" for read_file/ls, "pattern" for glob_files/grep_files.
+    _arg_key = "file_path" if _tool.name in ("read_file", "ls") else "pattern"
+    # ls uses dir_path, not file_path.
+    if _tool.name == "ls":
+        _arg_key = "dir_path"
+    _captured_key = _arg_key  # capture for lambda closure
+    _captured_perm = _perm_key
+    _tool.metadata = {
+        **((_tool.metadata or {})),
+        "permission_config": {
+            "permission": _captured_perm,
+            "patterns_fn": (lambda args, k=_captured_key: [args.get(k, "*")]),
+            # Once reading is approved, all reads are approved.
+            "always_fn": lambda args: ["*"],
+            "metadata_fn": (lambda args, k=_captured_key: {k: args.get(k, "")}),
+        },
     }
-    _tool.metadata = metadata
+
+for _tool in (write_file, edit_file, create_dir, move_file, delete_file):
+    # Determine the primary path argument name per tool.
+    _path_arg = {
+        "write_file": "file_path",
+        "edit_file": "file_path",
+        "create_dir": "dir_path",
+        "move_file": "source_path",
+        "delete_file": "file_path",
+    }[_tool.name]
+    _captured_path_arg = _path_arg
+    _tool.metadata = {
+        **((_tool.metadata or {})),
+        "permission_config": {
+            "permission": "edit",
+            "patterns_fn": (
+                lambda args, k=_captured_path_arg: [args.get(k, "*")]
+            ),
+            # Once any edit is approved, all workspace edits are approved
+            # (matching Opencode's default behaviour).
+            "always_fn": lambda args: ["*"],
+            "metadata_fn": (
+                lambda args, k=_captured_path_arg: {"filepath": args.get(k, "")}
+            ),
+        },
+    }
 
 __all__ = [
     "EditOperation",
