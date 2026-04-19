@@ -116,26 +116,31 @@ async def prompt_for_interrupt(
         # Collect user response.
         kb = KeyBindings()
 
+        # TODO(Phase 5): mode cycling will translate approval_mode → permission_ruleset
+        # overlay instead of storing it directly on AgentContext.  For now the
+        # cycle key binding reads/writes a module-level variable as a temporary
+        # shim so the UX still works until Phase 5 lands.
+        _current_mode: list[ApprovalMode] = [ApprovalMode.SEMI_ACTIVE]
+
         @kb.add(Keys.BackTab)
         def _cycle_mode(event):
             modes = list(ApprovalMode)
-            idx = modes.index(context.approval_mode)
-            context.approval_mode = modes[(idx + 1) % len(modes)]
+            _current_mode[0] = modes[(modes.index(_current_mode[0]) + 1) % len(modes)]
 
             if on_approval_mode_change is not None:
-                on_approval_mode_change(context.approval_mode)
+                on_approval_mode_change(_current_mode[0])
 
-            session.style = create_prompt_style(context.approval_mode)
+            session.style = create_prompt_style(_current_mode[0])
             event.app.invalidate()
 
         try:
             session = PromptSession(
                 key_bindings=kb,
-                style=create_prompt_style(context.approval_mode),
+                style=create_prompt_style(_current_mode[0]),
                 bottom_toolbar=lambda: create_bottom_toolbar(
                     "0.1.0",
                     thread_id,
-                    approval_mode=context.approval_mode,
+                    approval_mode=_current_mode[0],
                 ),
             )
             answer = await session.prompt_async("  → ")
@@ -489,12 +494,16 @@ async def stream_response(
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
+    # TODO(Phase 5): translate approval_mode → permission_ruleset overlay so
+    # the mode-cycling UX maps to the new permission model.  For now the
+    # approval_mode parameter is accepted but not yet forwarded to the context;
+    # CLI interrupt prompting still reads context.approval_mode directly and
+    # will be migrated in Phase 5.
     context = AgentContext(
         working_dir=working_dir or str(Path.cwd()),
         user_memory=_load_user_memory(working_dir),
         input_cost_per_mtok=input_cost_per_mtok,
         output_cost_per_mtok=output_cost_per_mtok,
-        approval_mode=approval_mode,
     )
     stats = _TurnStats()
     display_state = _DisplayState()

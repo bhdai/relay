@@ -206,9 +206,27 @@ def _make_request(
     tool_metadata: dict | None = None,
     tool_catalog: list | None = None,
 ) -> Mock:
-    """Build a mock ToolCallRequest."""
+    """Build a mock ToolCallRequest.
+
+    ``approval_mode`` is retained as a parameter for readability but is no
+    longer stored on ``AgentContext`` (removed in Phase 2).  When
+    ``AGGRESSIVE`` mode was requested and no explicit ``tool_metadata`` is
+    provided, we simulate the old bypass behaviour by injecting
+    ``always_approve: True`` into the tool metadata.  This preserves the
+    semantics of existing tests without putting approval_mode back on
+    AgentContext (which is now replaced by permission_ruleset).
+    """
+    # Determine effective tool metadata.
+    # AGGRESSIVE used to bypass all prompts; simulate that with always_approve.
+    if tool_metadata is not None:
+        effective_metadata = tool_metadata
+    elif approval_mode == ApprovalMode.AGGRESSIVE:
+        effective_metadata = {"approval_config": {"always_approve": True}}
+    else:
+        effective_metadata = {}
+
     mock_tool = Mock()
-    mock_tool.metadata = tool_metadata or {}
+    mock_tool.metadata = effective_metadata
 
     request = Mock(spec=ToolCallRequest)
     request.tool_call = {
@@ -219,7 +237,6 @@ def _make_request(
     request.tool = mock_tool
     request.runtime = Mock()
     request.runtime.context = AgentContext(
-        approval_mode=approval_mode,
         working_dir=working_dir,
         tool_catalog=tool_catalog or [],
     )

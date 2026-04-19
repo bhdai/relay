@@ -253,8 +253,12 @@ class ApprovalMiddleware(AgentMiddleware[AgentState, AgentContext]):
         formatted_args = format_args_fn(tool_args) if format_args_fn else tool_args
 
         # ----- Mode bypass check -----
+        # NOTE: approval_mode has been removed from AgentContext in Phase 2.
+        # The ApprovalMiddleware is replaced by PermissionMiddleware in Phase 3.
+        # Until then, fall back to SEMI_ACTIVE (safest default — always prompt).
+        approval_mode = getattr(context, "approval_mode", ApprovalMode.SEMI_ACTIVE)
         if self._check_approval_mode_bypass(
-            context.approval_mode, approval_config, tool_name, formatted_args
+            approval_mode, approval_config, tool_name, formatted_args
         ):
             return ALLOW
 

@@ -119,6 +119,8 @@ async def test_stream_response_passes_pricing_into_agent_context() -> None:
     """Streaming should propagate configured pricing into AgentContext."""
     graph = _FakeGraph([])
 
+    # approval_mode is still accepted as a parameter (for backward compatibility
+    # and future Phase 5 translation), but is no longer stored on AgentContext.
     await stream_response(
         graph,
         {"messages": []},
@@ -131,7 +133,6 @@ async def test_stream_response_passes_pricing_into_agent_context() -> None:
     assert graph.last_context is not None
     assert graph.last_context.input_cost_per_mtok == 0.4
     assert graph.last_context.output_cost_per_mtok == 1.6
-    assert graph.last_context.approval_mode == ApprovalMode.AGGRESSIVE
 
 
 @pytest.mark.asyncio

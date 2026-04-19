@@ -8,9 +8,9 @@ live under ``relay/resources/configs/default/`` (or a project-local
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
 
-from relay.configs.sandbox import AgentSandboxConfig
+from pydantic import BaseModel, Field
 
 
 # ==============================================================================
@@ -73,9 +73,14 @@ class BaseAgentConfig(BaseModel):
         default=None,
         description="Tool surface configuration",
     )
-    sandbox: AgentSandboxConfig | None = Field(
+    permission: dict[str, Any] | None = Field(
         default=None,
-        description="Sandbox configuration for this agent's tool execution",
+        description=(
+            "Permission ruleset for this agent's tool execution. "
+            "Accepts shorthand (\"bash\": \"allow\") or pattern maps "
+            "(\"read\": {\"*.env\": \"ask\", \"*\": \"allow\"}). "
+            "Merged with DEFAULT_PERMISSION at build time; later entries win."
+        ),
     )
     recursion_limit: int = Field(
         default=100,
