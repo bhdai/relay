@@ -16,12 +16,14 @@ from langchain_core.messages import AIMessageChunk, AnyMessage, HumanMessage, To
 from langchain_core.tools import BaseTool, ToolException, tool
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from relay.agents.context import AgentContext
 from relay.agents.react_agent import create_react_agent
 from relay.agents.state import AgentState
 from relay.configs.llm import LLMConfig
+from relay.permission.config import merge
+from relay.permission.schema import PermissionRule, Ruleset
 from relay.utils.messages import create_tool_message
 
 if TYPE_CHECKING:
@@ -50,8 +52,18 @@ class SubAgentRuntime(BaseModel):
     prompt: str
     llm_config: LLMConfig | None = None
     recursion_limit: int = 100
+    # Subagent-specific permission overrides.  These are merged *on top of*
+    # the coordinator's inherited ruleset at graph-build time so that
+    # read-only subagents can restrict (or grant) permissions independently
+    # of the coordinator's policy.
+    permission_ruleset: Ruleset = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# Resolve the forward reference in `Ruleset = list["PermissionRule"]` so that
+# Pydantic can fully validate the ``permission_ruleset`` field.
+SubAgentRuntime.model_rebuild()
 
 
 # ==============================================================================
@@ -165,12 +177,23 @@ def _unpack_subagent_event(raw_event: Any) -> tuple[tuple[str, ...], str, Any] |
 def create_task_tool(
     subagent_configs: list[SubAgentRuntime],
     model_provider: Callable[[LLMConfig | None], BaseChatModel],
+    coordinator_ruleset: Ruleset | None = None,
 ):
     """Create a ``task`` tool that delegates work to named subagents.
 
     Each subagent is lazily compiled on first use via
     ``create_react_agent``.  The ``think`` tool is appended to every
     subagent's tool surface automatically.
+
+    Parameters
+    ----------
+    coordinator_ruleset:
+        The resolved ``Ruleset`` from the coordinator agent.  Each
+        subagent inherits this as a base and then its own
+        ``SubAgentRuntime.permission_ruleset`` is merged on top
+        (last-match-wins), so subagent-specific rules take precedence.
+        When ``None``, subagents are compiled with only their own
+        ruleset (no inheritance).
     """
 
     agents: dict[str, CompiledStateGraph] = {}
@@ -201,6 +224,18 @@ def create_task_tool(
         # Lazily compile the subagent graph on first delegation.
         if subagent_type not in agents:
             model = model_provider(config.llm_config)
+
+            # Merge coordinator permissions with subagent-specific overrides.
+            # The coordinator ruleset provides the inherited base (e.g. the
+            # session-level policy from the top-level agent config).  Each
+            # subagent's own ruleset is appended last so its rules win on
+            # conflict — a read-only subagent can therefore deny "bash" even
+            # if the coordinator allows it.
+            child_ruleset: Ruleset = merge(
+                coordinator_ruleset or [],
+                config.permission_ruleset,
+            )
+
             agents[subagent_type] = create_react_agent(
                 model,
                 tools=[*config.tools, think],
@@ -208,6 +243,7 @@ def create_task_tool(
                 state_schema=AgentState,
                 context_schema=AgentContext,
                 name=config.name,
+                permission_ruleset=child_ruleset,
             )
 
         subagent = agents[subagent_type]

@@ -56,6 +56,10 @@ def create_deep_agent(
         task_tool = create_task_tool(
             subagent_configs=subagent_configs,
             model_provider=subagent_model_provider or (lambda _config: model),
+            # Forward the coordinator's resolved ruleset so subagents inherit
+            # it as their permission base.  Each subagent then merges its own
+            # SubAgentRuntime.permission_ruleset on top (last-match-wins).
+            coordinator_ruleset=permission_ruleset or [],
         )
         all_tools.append(task_tool)
 

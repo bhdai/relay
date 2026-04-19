@@ -358,6 +358,12 @@ class AgentFactory:
         if not tools:
             tools = [*_ALL_IMPL_TOOLS, *MEMORY_TOOLS, *TODO_TOOLS]
 
+        # Normalise the subagent's YAML permission overrides into a Ruleset.
+        # These are merged on top of the coordinator's inherited ruleset at
+        # graph-build time inside create_task_tool (last-match-wins), so
+        # subagent-specific rules always win over inherited ones.
+        subagent_ruleset = from_config(decl.permission or {})
+
         return SubAgentRuntime(
             name=decl.name,
             description=decl.description,
@@ -365,6 +371,7 @@ class AgentFactory:
             prompt=decl.prompt if isinstance(decl.prompt, str) else "",
             llm_config=llm_config,
             recursion_limit=decl.recursion_limit,
+            permission_ruleset=subagent_ruleset,
         )
 
     def _resolve_coordinator_tools(
