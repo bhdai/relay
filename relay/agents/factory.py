@@ -24,6 +24,7 @@ from relay.agents.deep_agent import create_deep_agent
 from relay.agents.state import AgentState
 from relay.configs.llm import LLMConfig, LLMProvider
 from relay.llms.factory import LLMFactory
+from relay.permission.config import DEFAULT_PERMISSION, from_config, merge
 from relay.prompt import COORDINATOR_PROMPT, EXPLORER_PROMPT, WORKER_PROMPT
 from relay.settings import get_settings
 from relay.tools.factory import ToolFactory
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from relay.configs.agent import SubAgentConfig as DeclSubAgentConfig
     from relay.configs.registry import ConfigRegistry
     from relay.mcp.client import MCPClient
+    from relay.permission.schema import Ruleset
     from relay.skills.factory import Skill, SkillFactory
 
 logger = logging.getLogger(__name__)
@@ -356,6 +358,12 @@ class AgentFactory:
         if not tools:
             tools = [*_ALL_IMPL_TOOLS, *MEMORY_TOOLS, *TODO_TOOLS]
 
+        # Normalise the subagent's YAML permission overrides into a Ruleset.
+        # These are merged on top of the coordinator's inherited ruleset at
+        # graph-build time inside create_task_tool (last-match-wins), so
+        # subagent-specific rules always win over inherited ones.
+        subagent_ruleset = from_config(decl.permission or {})
+
         return SubAgentRuntime(
             name=decl.name,
             description=decl.description,
@@ -363,6 +371,7 @@ class AgentFactory:
             prompt=decl.prompt if isinstance(decl.prompt, str) else "",
             llm_config=llm_config,
             recursion_limit=decl.recursion_limit,
+            permission_ruleset=subagent_ruleset,
         )
 
     def _resolve_coordinator_tools(
@@ -453,6 +462,28 @@ class AgentFactory:
         return [_explorer_config(), _worker_config()]
 
     # ------------------------------------------------------------------
+    # Permission ruleset construction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_permission_ruleset(agent_cfg: DeclAgentConfig) -> Ruleset:
+        """Build the resolved permission ruleset for an agent.
+
+        Merges ``DEFAULT_PERMISSION`` with any per-agent overrides declared
+        in the agent's YAML config.  Later entries win (last-match-wins),
+        so YAML overrides take precedence over the defaults.
+
+        Args:
+            agent_cfg: The declarative agent configuration from YAML.
+
+        Returns:
+            A flat ``Ruleset`` ready for use in ``PermissionMiddleware``.
+        """
+        defaults = from_config(DEFAULT_PERMISSION)
+        agent_overrides = from_config(agent_cfg.permission or {})
+        return merge(defaults, agent_overrides)
+
+    # ------------------------------------------------------------------
     # Graph assembly
     # ------------------------------------------------------------------
 
@@ -479,6 +510,8 @@ class AgentFactory:
         """
         llm_config = self._build_default_llm_config(model_name=self._model_name)
         model = self._model_from_config(llm_config)
+        # Hardcoded fallback uses DEFAULT_PERMISSION with no overrides.
+        permission_ruleset = from_config(DEFAULT_PERMISSION)
         return create_deep_agent(
             model=model,
             tools=self._coordinator_tools(),
@@ -489,6 +522,7 @@ class AgentFactory:
             context_schema=AgentContext,
             checkpointer=checkpointer,
             name="coordinator",
+            permission_ruleset=permission_ruleset,
         )
 
     async def create_from_config(
@@ -577,6 +611,12 @@ class AgentFactory:
                     )
                 )
 
+        # ----------------------------------------------------------
+        # Permission ruleset
+        # ----------------------------------------------------------
+        # Merge DEFAULT_PERMISSION with any per-agent overrides from YAML.
+        permission_ruleset = self._build_permission_ruleset(agent_cfg)
+
         coordinator_llm_config = await self._resolve_llm_config(
             configured_llm_name=agent_cfg.llm,
         )
@@ -592,6 +632,7 @@ class AgentFactory:
             context_schema=AgentContext,
             checkpointer=checkpointer,
             name=agent_cfg.name,
+            permission_ruleset=permission_ruleset,
         )
 
     # ------------------------------------------------------------------

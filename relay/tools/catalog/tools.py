@@ -59,7 +59,7 @@ async def fetch_tools(
     return "\n".join(sorted(matches))
 
 
-fetch_tools.metadata = {"approval_config": {"always_approve": True}}
+fetch_tools.metadata = {"permission_config": {"permission": "fetch_tools"}}
 
 
 @tool
@@ -82,7 +82,7 @@ async def get_tool(tool_name: str, runtime: ToolRuntime[AgentContext]) -> str:
     return json.dumps(schema, indent=2)
 
 
-get_tool.metadata = {"approval_config": {"always_approve": True}}
+get_tool.metadata = {"permission_config": {"permission": "get_tool"}}
 
 
 @tool
@@ -119,7 +119,10 @@ async def run_tool(
 
 
 run_tool.metadata = {
-    "approval_config": {
+    "permission_config": {
+        # The proxy looks through to the underlying tool's permission_config.
+        # The PermissionMiddleware uses this flag to resolve the real tool
+        # from AgentContext.tool_catalog and evaluate its permission semantics.
         "is_catalog_proxy": True,
     }
 }

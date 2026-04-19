@@ -21,5 +21,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Set up environment file
+        run: cp .env.example .env
+
+      - name: Load environment variables
+        run: export $(grep -v '^#' .env | xargs)
+
       - name: Run tests
         run: uv run python -m pytest tests/ --ignore=tests/integration -v

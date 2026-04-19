@@ -2,13 +2,13 @@
 
 These Pydantic models represent the YAML-serialisable definitions that
 live under ``relay/resources/configs/default/`` (or a project-local
-``.relay/`` directory).  The schemas intentionally mirror the
-structure of langrepl's ``configs/agent.py`` but omit features that
-relay has not adopted yet (sandbox, skills, compression, versioning /
-migration).
+``.relay/`` directory).  The schemas mirror the structure of langrepl's
+``configs/agent.py``.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -72,6 +72,15 @@ class BaseAgentConfig(BaseModel):
     tools: ToolsConfig | None = Field(
         default=None,
         description="Tool surface configuration",
+    )
+    permission: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Permission ruleset for this agent's tool execution. "
+            "Accepts shorthand (\"bash\": \"allow\") or pattern maps "
+            "(\"read\": {\"*.env\": \"ask\", \"*\": \"allow\"}). "
+            "Merged with DEFAULT_PERMISSION at build time; later entries win."
+        ),
     )
     recursion_limit: int = Field(
         default=100,

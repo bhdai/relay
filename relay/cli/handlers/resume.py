@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from relay.cli.handlers.interrupts import InterruptHandler
 from relay.cli.handlers.threads import ThreadManager
 from relay.cli.ui.renderer import render_info
 
@@ -30,7 +29,6 @@ class ResumeHandler:
 
     def __init__(self, session: Session) -> None:
         self.session = session
-        self.interrupt_handler = InterruptHandler()
 
     async def handle(self, prompt_session: PromptSession) -> None:
         """Show thread list, switch context, and handle pending interrupts."""

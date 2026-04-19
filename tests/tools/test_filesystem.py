@@ -11,6 +11,10 @@ from relay.tools.impl.filesystem import (
     _glob_match,
     _grep_match,
     _paginate_file,
+    glob_files,
+    grep_files,
+    ls,
+    read_file,
     walk_files,
 )
 
@@ -250,3 +254,20 @@ class TestGrepMatch:
             tmp_path, iter(files), "missing", is_regex=False, max_results=100,
         )
         assert matches == []
+
+
+# ==============================================================================
+# Tool metadata
+# ==============================================================================
+
+
+class TestApprovalMetadata:
+    """Read-only discovery tools should have a permission_config with the correct key."""
+
+    def test_read_only_tools_have_permission_config(self):
+        expected = {"read_file": "read", "glob_files": "glob", "grep_files": "grep", "ls": "list"}
+        for tool in (read_file, glob_files, grep_files, ls):
+            permission_config = (tool.metadata or {}).get("permission_config", {})
+            assert permission_config.get("permission") == expected[tool.name], (
+                f"{tool.name} should have permission '{expected[tool.name]}'"
+            )

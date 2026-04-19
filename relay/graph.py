@@ -27,7 +27,7 @@ def build_graph():
     For callers that need a checkpointer (e.g. the CLI), use
     ``build_graph_with_checkpointer`` instead.
     """
-    return _factory.create()
+    return _factory.create_from_config()
 
 
 def build_graph_with_checkpointer(
@@ -40,4 +40,3 @@ def build_graph_with_checkpointer(
         ``Initializer.get_graph(...)`` instead.
     """
     return _factory.create(checkpointer=checkpointer)
-

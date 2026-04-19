@@ -19,8 +19,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from relay.configs.approval import ApprovalMode
-
 
 class AgentContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -33,7 +31,24 @@ class AgentContext(BaseModel):
     current_date_time_zoned: str = Field(
         default_factory=lambda: datetime.now().astimezone().isoformat()
     )
-    approval_mode: ApprovalMode = ApprovalMode.SEMI_ACTIVE
+    # The accumulated per-session always-approved permission rules, stored in
+    # serialisable dict form so LangGraph can checkpoint them alongside
+    # conversation state.  Normalisation into PermissionRule objects happens
+    # at middleware construction time, not here.
+    #
+    # Each entry has the shape:
+    #   {"permission": str, "pattern": str, "action": "allow" | "deny" | "ask"}
+    permission_ruleset: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Session-accumulated always-approved permission rules in "
+            "serialisable dict form.  Set by the factory from agent config "
+            "and grown at runtime by PermissionMiddleware 'always' replies."
+        ),
+    )
+    # NOTE: PermissionService is intentionally NOT stored on AgentContext.
+    # It holds asyncio state and is not serialisable.  The middleware
+    # constructs it once per session from permission_ruleset at startup.
     user_memory: str = ""
     tool_output_max_tokens: int = 10_000
     input_cost_per_mtok: float = 0.0

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from relay.agents.context import AgentContext
     from relay.agents.state import AgentState
+    from relay.permission.schema import Ruleset
 
 
 def create_deep_agent(
@@ -34,12 +35,20 @@ def create_deep_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     name: str | None = None,
+    permission_ruleset: Ruleset | None = None,
 ) -> CompiledStateGraph:
     """Create a coordinator agent that can delegate to subagents.
 
     If *subagent_configs* is provided, a ``task`` tool is built and
     appended to *tools*.  Otherwise, this is equivalent to calling
     ``create_react_agent`` directly.
+
+    Parameters
+    ----------
+    permission_ruleset:
+        Resolved ``Ruleset`` forwarded to ``create_react_agent`` for
+        the ``PermissionMiddleware``.  When ``None``, the default
+        permission ruleset is applied.
     """
 
     all_tools = list(tools)
@@ -47,6 +56,10 @@ def create_deep_agent(
         task_tool = create_task_tool(
             subagent_configs=subagent_configs,
             model_provider=subagent_model_provider or (lambda _config: model),
+            # Forward the coordinator's resolved ruleset so subagents inherit
+            # it as their permission base.  Each subagent then merges its own
+            # SubAgentRuntime.permission_ruleset on top (last-match-wins).
+            coordinator_ruleset=permission_ruleset or [],
         )
         all_tools.append(task_tool)
 
@@ -59,4 +72,5 @@ def create_deep_agent(
         checkpointer=checkpointer,
         store=store,
         name=name,
+        permission_ruleset=permission_ruleset,
     )

@@ -2,7 +2,7 @@
 
 The ``stream_response`` coroutine owns the inner loop that streams
 from a LangGraph ``CompiledGraph``.  When an ``__interrupt__`` event
-is detected (e.g. a tool requesting approval), it prompts the user
+is detected (e.g. a tool requesting permission), it prompts the user
 and re-enters the stream with ``Command(resume=...)``.
 """
 
@@ -11,16 +11,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command, Interrupt
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from relay.agents.context import AgentContext
+from relay.configs.approval import ApprovalMode
 from relay.cli.theme import console
+from relay.cli.ui.shared import create_bottom_toolbar, create_prompt_style
 from relay.cli.ui.renderer import (
     assistant_message_has_renderable_content,
     assistant_message_text,
@@ -69,14 +73,55 @@ def _load_user_memory(working_dir: str | None = None) -> str:
 
 
 # ==============================================================================
+# Permission Mode Overlay
+# ==============================================================================
+#
+# The CLI ``ApprovalMode`` is a convenience alias for a permission ruleset
+# overlay seeded into ``AgentContext.permission_ruleset`` at session start.
+# The ``PermissionMiddleware`` treats this field as initial "accumulated
+# approvals", so placing an ``allow *`` rule here causes the service to
+# auto-approve everything except explicit ``deny`` rules from the agent
+# config (which are always checked first by the service).
+
+# Human-readable descriptions for the three reply options shown in prompts.
+_REPLY_DESCRIPTIONS: dict[str, str] = {
+    "once": "allow this call only",
+    "always": "allow this pattern permanently",
+    "reject": "deny and cancel all pending requests",
+}
+
+
+def _mode_to_permission_overlay(mode: ApprovalMode) -> list[dict[str, Any]]:
+    """Translate CLI *approval_mode* into a serialisable permission ruleset overlay.
+
+    - ``SEMI_ACTIVE``  → ``[]``: ask for every tool call the agent config does
+      not explicitly allow.
+    - ``ACTIVE``       → ``[allow *]``: auto-approve everything; explicit
+      ``deny`` rules in the agent config still fire.
+    - ``AGGRESSIVE``   → same overlay as ``ACTIVE``; the service's deny-first
+      check ensures deny rules are always honoured regardless.
+    """
+    if mode in (ApprovalMode.ACTIVE, ApprovalMode.AGGRESSIVE):
+        return [{"permission": "*", "pattern": "*", "action": "allow"}]
+    return []
+
+
+# ==============================================================================
 # Interrupt prompting
 # ==============================================================================
 
 
 async def prompt_for_interrupt(
     interrupts: list[Interrupt],
+    *,
+    context: AgentContext,
+    thread_id: str,
+    on_approval_mode_change: Callable[[ApprovalMode], None] | None = None,
 ) -> dict[str, Any] | None:
     """Prompt the user for each pending interrupt.
+
+    Handles both ``PermissionInterruptPayload`` (from ``PermissionMiddleware``)
+    and generic payloads with a ``question`` / ``options`` shape.
 
     Returns a ``{interrupt_id: user_choice}`` dict suitable for
     ``Command(resume=...)``, or ``None`` if the user cancels.
@@ -86,28 +131,72 @@ async def prompt_for_interrupt(
     for intr in interrupts:
         payload = intr.value
 
-        # Display the interrupt question.
-        if hasattr(payload, "question"):
-            console.print(
-                f"  ? {payload.question}",
-                style=console.get_style("warning", bold=True),
-            )
-        else:
-            console.print(
-                f"  ? {payload}",
-                style=console.get_style("warning", bold=True),
-            )
+        # --- Question line ---
+        question = getattr(payload, "question", None) or str(payload)
+        console.print(
+            f"  ? {question}",
+            style=console.get_style("warning", bold=True),
+        )
 
-        # Show options if available.
+        # --- Permission-specific context (PermissionInterruptPayload fields) ---
+        permission = getattr(payload, "permission", None)
+        patterns = getattr(payload, "patterns", None)
+        always_patterns = getattr(payload, "always_patterns", None)
+        metadata = getattr(payload, "metadata", None)
+
+        if permission:
+            console.print(f"    permission : {permission}", style="muted")
+
+        if patterns:
+            console.print(f"    patterns   : {', '.join(patterns)}", style="muted")
+
+        if always_patterns:
+            console.print(f"    always     : {', '.join(always_patterns)}", style="muted")
+
+        if metadata:
+            for key in ("command", "filepath"):
+                val = metadata.get(key)
+                if val:
+                    console.print(f"    {key:<10} : {val}", style="muted")
+
+        # --- Options ---
         options: list[str] = []
         if hasattr(payload, "options") and payload.options:
             options = payload.options
-            for j, opt in enumerate(options, 1):
-                console.print(f"    {j}. {opt}", style="muted")
+
+        for j, opt in enumerate(options, 1):
+            desc = _REPLY_DESCRIPTIONS.get(opt, "")
+            suffix = f"  — {desc}" if desc else ""
+            console.print(f"    {j}. {opt}{suffix}", style="muted")
 
         # Collect user response.
+        kb = KeyBindings()
+
+        # Shift+Tab cycles the permission mode.  The current mode is tracked in
+        # a one-element list so the closure captures by reference.
+        _current_mode: list[ApprovalMode] = [ApprovalMode.SEMI_ACTIVE]
+
+        @kb.add(Keys.BackTab)
+        def _cycle_mode(event):
+            modes = list(ApprovalMode)
+            _current_mode[0] = modes[(modes.index(_current_mode[0]) + 1) % len(modes)]
+
+            if on_approval_mode_change is not None:
+                on_approval_mode_change(_current_mode[0])
+
+            session.style = create_prompt_style(_current_mode[0])
+            event.app.invalidate()
+
         try:
-            session = PromptSession()
+            session = PromptSession(
+                key_bindings=kb,
+                style=create_prompt_style(_current_mode[0]),
+                bottom_toolbar=lambda: create_bottom_toolbar(
+                    "0.1.0",
+                    thread_id,
+                    approval_mode=_current_mode[0],
+                ),
+            )
             answer = await session.prompt_async("  → ")
         except (EOFError, KeyboardInterrupt):
             return None
@@ -438,6 +527,8 @@ async def stream_response(
     working_dir: str | None = None,
     input_cost_per_mtok: float = 0.0,
     output_cost_per_mtok: float = 0.0,
+    approval_mode: ApprovalMode = ApprovalMode.SEMI_ACTIVE,
+    on_approval_mode_change: Callable[[ApprovalMode], None] | None = None,
 ) -> _TurnStats:
     """Stream the graph response, handling interrupts automatically.
 
@@ -457,11 +548,17 @@ async def stream_response(
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
+    # Translate approval_mode → permission_ruleset overlay so the mode-cycling
+    # UX maps to the new permission model.  The overlay is seeded into
+    # AgentContext.permission_ruleset, where PermissionMiddleware treats it as
+    # initial "accumulated approvals".  User "always" replies append on top of
+    # this baseline, so the mode acts as a floor — not a ceiling.
     context = AgentContext(
         working_dir=working_dir or str(Path.cwd()),
         user_memory=_load_user_memory(working_dir),
         input_cost_per_mtok=input_cost_per_mtok,
         output_cost_per_mtok=output_cost_per_mtok,
+        permission_ruleset=_mode_to_permission_overlay(approval_mode),
     )
     stats = _TurnStats()
     display_state = _DisplayState()
@@ -517,7 +614,12 @@ async def stream_response(
                 if raw_interrupts:
                     _close_open_text_line(stats)
 
-                    resume_value = await prompt_for_interrupt(raw_interrupts)
+                    resume_value = await prompt_for_interrupt(
+                        raw_interrupts,
+                        context=context,
+                        thread_id=thread_id,
+                        on_approval_mode_change=on_approval_mode_change,
+                    )
                     if resume_value is not None:
                         current_input = Command(resume=resume_value)
                         interrupted = True
