@@ -8,7 +8,7 @@ from relay.checkpointer.base import BaseCheckpointer
 from relay.checkpointer.factory import create_checkpointer
 from relay.checkpointer.impl.memory import MemoryCheckpointer
 from relay.checkpointer.impl.sqlite import IndexedAsyncSqliteSaver
-from relay.middlewares.approval import InterruptPayload
+from relay.middlewares.permission import PermissionInterruptPayload
 
 
 class TestCreateCheckpointer:
@@ -50,18 +50,32 @@ class TestCreateCheckpointer:
 
     @pytest.mark.asyncio
     async def test_serializer_allowlists_interrupt_payload(self, caplog):
-        """Interrupt payloads should deserialize without unregistered-type warnings."""
-        payload = InterruptPayload(question="Allow action?", options=["allow", "deny"])
+        """Permission interrupt payloads should deserialize without unregistered-type warnings."""
+        payload = PermissionInterruptPayload(
+            request_id="req-1",
+            question="Allow bash: git push --force?",
+            permission="bash",
+            patterns=["git push --force"],
+            always_patterns=["git push *"],
+        )
 
         with caplog.at_level(logging.WARNING):
             async with create_checkpointer(backend="memory") as cp:
                 encoded = cp.serde.dumps_typed(payload)
                 decoded = cp.serde.loads_typed(encoded)
 
-        assert isinstance(decoded, InterruptPayload)
-        assert decoded.question == "Allow action?"
+        assert isinstance(decoded, PermissionInterruptPayload)
+        assert decoded.question == "Allow bash: git push --force?"
+        assert decoded.permission == "bash"
         assert not any(
-            "Deserializing unregistered type relay.middlewares.approval.InterruptPayload"
+            "Deserializing unregistered type relay.middlewares.permission.Permission
+                decoded = cp.serde.loads_typed(encoded)
+
+        assert isinstance(decoded, PermissionInterruptPayload)
+        assert decoded.question == "Allow bash: git push --force?"
+        assert decoded.permission == "bash"
+        assert not any(
+            "Deserializing unregistered type relay.middlewares.permission.PermissionInterruptPayload"
             in record.message
             for record in caplog.records
         )

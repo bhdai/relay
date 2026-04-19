@@ -34,7 +34,7 @@ class CommandDispatcher:
             "/help": "Show available commands",
             "/new": "Start a new conversation thread",
             "/resume": "Resume a previous thread",
-            "/approval": "Cycle/set approval mode (semi-active|active|aggressive)",
+            "/approval": "Cycle/set permission mode (semi-active|active|aggressive)",
             "/approve": "Alias for /approval",
             "/cost": "Show cumulative token cost",
             "/exit": "Exit the REPL (also: exit, quit, stop)",
@@ -80,7 +80,7 @@ class CommandDispatcher:
             if not args:
                 mode = self.session.context.cycle_approval_mode()
                 self.session.prompt.refresh_style()
-                render_info(f"Approval mode: {mode.value}")
+                render_info(f"Permission mode: {mode.value}")
                 return False
 
             raw = args[0]
@@ -93,13 +93,13 @@ class CommandDispatcher:
             mode = aliases.get(raw)
             if mode is None:
                 render_error(
-                    "Invalid approval mode. Use: semi-active, active, aggressive"
+                    "Invalid permission mode. Use: semi-active, active, aggressive"
                 )
                 return False
 
             self.session.context.approval_mode = mode
             self.session.prompt.refresh_style()
-            render_info(f"Approval mode: {mode.value}")
+            render_info(f"Permission mode: {mode.value}")
             return False
 
         if cmd == "/cost":

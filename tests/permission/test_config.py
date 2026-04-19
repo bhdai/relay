@@ -202,14 +202,14 @@ class TestDefaultPermission:
     def setup_method(self):
         self.ruleset = from_config(DEFAULT_PERMISSION)
 
-    def test_bash_defaults_to_allow(self):
-        """Generic bash call is allowed (base "*": "allow" rule)."""
+    def test_bash_defaults_to_ask(self):
+        """Shell commands should require confirmation in the default policy."""
         result = evaluate("bash", "ls -la", self.ruleset)
-        assert result.action == "allow"
+        assert result.action == "ask"
 
-    def test_edit_defaults_to_allow(self):
+    def test_edit_defaults_to_ask(self):
         result = evaluate("edit", "src/main.py", self.ruleset)
-        assert result.action == "allow"
+        assert result.action == "ask"
 
     def test_read_normal_file_allowed(self):
         result = evaluate("read", "src/utils.py", self.ruleset)

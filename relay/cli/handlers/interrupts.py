@@ -1,7 +1,7 @@
 """Interrupt handling — prompts the user when the graph pauses.
 
 ``InterruptHandler`` owns the UI interaction for LangGraph interrupts
-(e.g. tool-approval prompts).  Both ``MessageDispatcher`` and
+(e.g. permission prompts).  Both ``MessageDispatcher`` and
 ``ResumeHandler`` delegate to it instead of duplicating the prompt
 logic.
 
@@ -25,6 +25,55 @@ from relay.cli.core.context import Context
 from relay.cli.ui.shared import create_bottom_toolbar, create_prompt_style
 from relay.configs.approval import ApprovalMode
 from relay.cli.theme import console
+
+# Human-readable descriptions for the three permission reply options.
+_REPLY_DESCRIPTIONS: dict[str, str] = {
+    "once": "allow this call only",
+    "always": "allow this pattern permanently",
+    "reject": "deny and cancel all pending requests",
+}
+
+
+def _render_permission_interrupt(payload: Any) -> None:
+    """Render a ``PermissionInterruptPayload`` to the console.
+
+    Displays the permission key, the concrete patterns being evaluated,
+    any tool-specific metadata (command text, file path, etc.), and the
+    available reply options with descriptions.
+
+    Falls back to a generic single-line question for non-permission
+    interrupt payloads (e.g. plain string or legacy ``InterruptPayload``).
+    """
+    # --- Question line ---
+    question = getattr(payload, "question", None) or str(payload)
+    console.print(
+        f"  ? {question}",
+        style=console.get_style("warning", bold=True),
+    )
+
+    # --- Permission-specific context (only for PermissionInterruptPayload) ---
+    permission = getattr(payload, "permission", None)
+    patterns = getattr(payload, "patterns", None)
+    always_patterns = getattr(payload, "always_patterns", None)
+    metadata = getattr(payload, "metadata", None)
+
+    if permission:
+        console.print(f"    permission : {permission}", style="muted")
+
+    if patterns:
+        patterns_str = ", ".join(patterns)
+        console.print(f"    patterns   : {patterns_str}", style="muted")
+
+    if always_patterns:
+        always_str = ", ".join(always_patterns)
+        console.print(f"    always     : {always_str}", style="muted")
+
+    # Show relevant metadata fields (command text, file path, diff header).
+    if metadata:
+        for key in ("command", "filepath"):
+            val = metadata.get(key)
+            if val:
+                console.print(f"    {key:<10} : {val}", style="muted")
 
 
 class InterruptHandler:
@@ -52,24 +101,20 @@ class InterruptHandler:
         for intr in interrupts:
             payload = intr.value
 
-            # Display the interrupt question.
-            if hasattr(payload, "question"):
-                console.print(
-                    f"  ? {payload.question}",
-                    style=console.get_style("warning", bold=True),
-                )
-            else:
-                console.print(
-                    f"  ? {payload}",
-                    style=console.get_style("warning", bold=True),
-                )
+            # Display the interrupt question and any permission-specific context.
+            _render_permission_interrupt(payload)
 
-            # Show options if available.
+            # Build and display the numbered option list.  Options come from
+            # PermissionInterruptPayload.options (["once", "always", "reject"])
+            # or fall back to whatever the payload advertises.
             options: list[str] = []
             if hasattr(payload, "options") and payload.options:
                 options = payload.options
-                for j, opt in enumerate(options, 1):
-                    console.print(f"    {j}. {opt}", style="muted")
+
+            for j, opt in enumerate(options, 1):
+                desc = _REPLY_DESCRIPTIONS.get(opt, "")
+                suffix = f"  — {desc}" if desc else ""
+                console.print(f"    {j}. {opt}{suffix}", style="muted")
 
             # Collect user response.
             kb = KeyBindings()

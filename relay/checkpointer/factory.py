@@ -35,9 +35,9 @@ _RELAY_DIR = ".relay"
 _DB_FILENAME = "checkpoints.db"
 
 # Keep serializer allowlist in one place so both memory/sqlite
-# backends deserialize approval interrupts without warnings.
+# backends deserialize permission interrupts without warnings.
 _ALLOWED_MSGPACK_MODULES: list[tuple[str, str]] = [
-    ("relay.middlewares.approval", "InterruptPayload"),
+    ("relay.middlewares.permission", "PermissionInterruptPayload"),
 ]
 
 

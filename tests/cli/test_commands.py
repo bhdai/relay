@@ -31,7 +31,7 @@ async def test_approval_command_cycles_mode() -> None:
     assert should_exit is False
     assert session.context.approval_mode == ApprovalMode.ACTIVE
     session.prompt.refresh_style.assert_called_once()
-    mock_render_info.assert_called_once_with("Approval mode: active")
+    mock_render_info.assert_called_once_with("Permission mode: active")
 
 
 @pytest.mark.asyncio
@@ -45,7 +45,7 @@ async def test_approval_command_sets_specific_mode() -> None:
     assert should_exit is False
     assert session.context.approval_mode == ApprovalMode.AGGRESSIVE
     session.prompt.refresh_style.assert_called_once()
-    mock_render_info.assert_called_once_with("Approval mode: aggressive")
+    mock_render_info.assert_called_once_with("Permission mode: aggressive")
 
 
 @pytest.mark.asyncio
@@ -59,5 +59,29 @@ async def test_approval_command_rejects_invalid_mode() -> None:
     assert should_exit is False
     assert session.context.approval_mode == ApprovalMode.SEMI_ACTIVE
     mock_render_error.assert_called_once_with(
-        "Invalid approval mode. Use: semi-active, active, aggressive"
+        "Invalid permission mode. Use: semi-active, active, aggressive"
     )
+
+
+# ==============================================================================
+# Phase 5: Context.permission_mode_overlay
+# ==============================================================================
+
+
+def test_permission_mode_overlay_semi_active_returns_empty() -> None:
+    ctx = Context(approval_mode=ApprovalMode.SEMI_ACTIVE)
+    assert ctx.permission_mode_overlay() == []
+
+
+def test_permission_mode_overlay_active_returns_allow_all() -> None:
+    ctx = Context(approval_mode=ApprovalMode.ACTIVE)
+    assert ctx.permission_mode_overlay() == [
+        {"permission": "*", "pattern": "*", "action": "allow"}
+    ]
+
+
+def test_permission_mode_overlay_aggressive_returns_allow_all() -> None:
+    ctx = Context(approval_mode=ApprovalMode.AGGRESSIVE)
+    assert ctx.permission_mode_overlay() == [
+        {"permission": "*", "pattern": "*", "action": "allow"}
+    ]

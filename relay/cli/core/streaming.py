@@ -2,7 +2,7 @@
 
 The ``stream_response`` coroutine owns the inner loop that streams
 from a LangGraph ``CompiledGraph``.  When an ``__interrupt__`` event
-is detected (e.g. a tool requesting approval), it prompts the user
+is detected (e.g. a tool requesting permission), it prompts the user
 and re-enters the stream with ``Command(resume=...)``.
 """
 
@@ -73,6 +73,40 @@ def _load_user_memory(working_dir: str | None = None) -> str:
 
 
 # ==============================================================================
+# Permission Mode Overlay
+# ==============================================================================
+#
+# The CLI ``ApprovalMode`` is a convenience alias for a permission ruleset
+# overlay seeded into ``AgentContext.permission_ruleset`` at session start.
+# The ``PermissionMiddleware`` treats this field as initial "accumulated
+# approvals", so placing an ``allow *`` rule here causes the service to
+# auto-approve everything except explicit ``deny`` rules from the agent
+# config (which are always checked first by the service).
+
+# Human-readable descriptions for the three reply options shown in prompts.
+_REPLY_DESCRIPTIONS: dict[str, str] = {
+    "once": "allow this call only",
+    "always": "allow this pattern permanently",
+    "reject": "deny and cancel all pending requests",
+}
+
+
+def _mode_to_permission_overlay(mode: ApprovalMode) -> list[dict[str, Any]]:
+    """Translate CLI *approval_mode* into a serialisable permission ruleset overlay.
+
+    - ``SEMI_ACTIVE``  → ``[]``: ask for every tool call the agent config does
+      not explicitly allow.
+    - ``ACTIVE``       → ``[allow *]``: auto-approve everything; explicit
+      ``deny`` rules in the agent config still fire.
+    - ``AGGRESSIVE``   → same overlay as ``ACTIVE``; the service's deny-first
+      check ensures deny rules are always honoured regardless.
+    """
+    if mode in (ApprovalMode.ACTIVE, ApprovalMode.AGGRESSIVE):
+        return [{"permission": "*", "pattern": "*", "action": "allow"}]
+    return []
+
+
+# ==============================================================================
 # Interrupt prompting
 # ==============================================================================
 
@@ -86,6 +120,9 @@ async def prompt_for_interrupt(
 ) -> dict[str, Any] | None:
     """Prompt the user for each pending interrupt.
 
+    Handles both ``PermissionInterruptPayload`` (from ``PermissionMiddleware``)
+    and generic payloads with a ``question`` / ``options`` shape.
+
     Returns a ``{interrupt_id: user_choice}`` dict suitable for
     ``Command(resume=...)``, or ``None`` if the user cancels.
     """
@@ -94,32 +131,49 @@ async def prompt_for_interrupt(
     for intr in interrupts:
         payload = intr.value
 
-        # Display the interrupt question.
-        if hasattr(payload, "question"):
-            console.print(
-                f"  ? {payload.question}",
-                style=console.get_style("warning", bold=True),
-            )
-        else:
-            console.print(
-                f"  ? {payload}",
-                style=console.get_style("warning", bold=True),
-            )
+        # --- Question line ---
+        question = getattr(payload, "question", None) or str(payload)
+        console.print(
+            f"  ? {question}",
+            style=console.get_style("warning", bold=True),
+        )
 
-        # Show options if available.
+        # --- Permission-specific context (PermissionInterruptPayload fields) ---
+        permission = getattr(payload, "permission", None)
+        patterns = getattr(payload, "patterns", None)
+        always_patterns = getattr(payload, "always_patterns", None)
+        metadata = getattr(payload, "metadata", None)
+
+        if permission:
+            console.print(f"    permission : {permission}", style="muted")
+
+        if patterns:
+            console.print(f"    patterns   : {', '.join(patterns)}", style="muted")
+
+        if always_patterns:
+            console.print(f"    always     : {', '.join(always_patterns)}", style="muted")
+
+        if metadata:
+            for key in ("command", "filepath"):
+                val = metadata.get(key)
+                if val:
+                    console.print(f"    {key:<10} : {val}", style="muted")
+
+        # --- Options ---
         options: list[str] = []
         if hasattr(payload, "options") and payload.options:
             options = payload.options
-            for j, opt in enumerate(options, 1):
-                console.print(f"    {j}. {opt}", style="muted")
+
+        for j, opt in enumerate(options, 1):
+            desc = _REPLY_DESCRIPTIONS.get(opt, "")
+            suffix = f"  — {desc}" if desc else ""
+            console.print(f"    {j}. {opt}{suffix}", style="muted")
 
         # Collect user response.
         kb = KeyBindings()
 
-        # TODO(Phase 5): mode cycling will translate approval_mode → permission_ruleset
-        # overlay instead of storing it directly on AgentContext.  For now the
-        # cycle key binding reads/writes a module-level variable as a temporary
-        # shim so the UX still works until Phase 5 lands.
+        # Shift+Tab cycles the permission mode.  The current mode is tracked in
+        # a one-element list so the closure captures by reference.
         _current_mode: list[ApprovalMode] = [ApprovalMode.SEMI_ACTIVE]
 
         @kb.add(Keys.BackTab)
@@ -494,16 +548,17 @@ async def stream_response(
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    # TODO(Phase 5): translate approval_mode → permission_ruleset overlay so
-    # the mode-cycling UX maps to the new permission model.  For now the
-    # approval_mode parameter is accepted but not yet forwarded to the context;
-    # CLI interrupt prompting still reads context.approval_mode directly and
-    # will be migrated in Phase 5.
+    # Translate approval_mode → permission_ruleset overlay so the mode-cycling
+    # UX maps to the new permission model.  The overlay is seeded into
+    # AgentContext.permission_ruleset, where PermissionMiddleware treats it as
+    # initial "accumulated approvals".  User "always" replies append on top of
+    # this baseline, so the mode acts as a floor — not a ceiling.
     context = AgentContext(
         working_dir=working_dir or str(Path.cwd()),
         user_memory=_load_user_memory(working_dir),
         input_cost_per_mtok=input_cost_per_mtok,
         output_cost_per_mtok=output_cost_per_mtok,
+        permission_ruleset=_mode_to_permission_overlay(approval_mode),
     )
     stats = _TurnStats()
     display_state = _DisplayState()

@@ -18,7 +18,7 @@ from relay.configs.approval import ApprovalMode
 
 
 def _prompt_color_for_mode(mode: ApprovalMode | None) -> str:
-    """Return prompt accent color for the current approval mode."""
+    """Return prompt accent color for the current permission mode."""
     if mode == ApprovalMode.ACTIVE:
         return theme.warning_color
     if mode == ApprovalMode.AGGRESSIVE:
@@ -27,7 +27,7 @@ def _prompt_color_for_mode(mode: ApprovalMode | None) -> str:
 
 
 def create_prompt_style(approval_mode: ApprovalMode | None = None) -> Style:
-    """Build a prompt-toolkit ``Style`` from theme + approval mode."""
+    """Build a prompt-toolkit ``Style`` from theme + permission mode."""
     prompt_color = _prompt_color_for_mode(approval_mode)
 
     return Style.from_dict(
@@ -52,7 +52,7 @@ def create_prompt_style(approval_mode: ApprovalMode | None = None) -> Style:
             # Bottom toolbar — override default reverse video
             "bottom-toolbar": f"noreverse {theme.muted_text}",
             "bottom-toolbar.text": f"noreverse {theme.muted_text}",
-            # Approval mode segment in toolbar
+            # Permission mode segment in toolbar
             "toolbar.mode": f"noreverse {prompt_color}",
         }
     )

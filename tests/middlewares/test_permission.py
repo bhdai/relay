@@ -108,7 +108,7 @@ class TestAllowDecision:
 
     @pytest.mark.asyncio
     async def test_default_permission_allows_tool(self):
-        """DEFAULT_PERMISSION has '*': 'allow'; all tools pass without interruption."""
+        """DEFAULT_PERMISSION still allows tool families without explicit overrides."""
         ruleset = from_config(DEFAULT_PERMISSION)
         middleware = PermissionMiddleware(ruleset)
         request = _make_request()
@@ -116,6 +116,33 @@ class TestAllowDecision:
 
         result = await middleware.awrap_tool_call(request, handler)
 
+        assert isinstance(result, ToolMessage)
+        handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_persisted_allow_overlay_overrides_default_bash_prompt(self):
+        """Session-level allow overlays should bypass the default bash prompt."""
+        ruleset = from_config(DEFAULT_PERMISSION)
+        middleware = PermissionMiddleware(ruleset)
+        request = _make_request(
+            tool_name="run_command",
+            args={"command": "git status"},
+            permission_ruleset=[
+                {"permission": "*", "pattern": "*", "action": "allow"}
+            ],
+            tool_metadata={
+                "permission_config": {
+                    "permission": "bash",
+                    "patterns_fn": lambda args: [args.get("command", "")],
+                }
+            },
+        )
+        handler = _make_handler(tool_name="run_command")
+
+        with patch("relay.middlewares.permission.interrupt") as interrupt_mock:
+            result = await middleware.awrap_tool_call(request, handler)
+
+        interrupt_mock.assert_not_called()
         assert isinstance(result, ToolMessage)
         handler.assert_called_once()
 
@@ -228,6 +255,33 @@ class TestDenyDecision:
 
 class TestNeedsAskDecision:
     """PermissionMiddleware with an ask rule triggers an interrupt."""
+
+    @pytest.mark.asyncio
+    async def test_default_permission_prompts_for_bash(self):
+        """Default rules should interrupt before running shell commands."""
+        ruleset = from_config(DEFAULT_PERMISSION)
+        middleware = PermissionMiddleware(ruleset)
+        request = _make_request(
+            tool_name="run_command",
+            args={"command": "git status"},
+            tool_metadata={
+                "permission_config": {
+                    "permission": "bash",
+                    "patterns_fn": lambda args: [args.get("command", "")],
+                }
+            },
+        )
+        handler = _make_handler(tool_name="run_command")
+
+        with patch(
+            "relay.middlewares.permission.interrupt",
+            return_value="once",
+        ) as interrupt_mock:
+            result = await middleware.awrap_tool_call(request, handler)
+
+        interrupt_mock.assert_called_once()
+        assert isinstance(result, ToolMessage)
+        handler.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ask_rule_fires_interrupt(self):

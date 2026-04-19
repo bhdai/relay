@@ -13,7 +13,7 @@ from relay.configs.agent import (
     SubAgentConfig,
     ToolsConfig,
 )
-from relay.configs.approval import ApprovalMode, ToolApprovalConfig, ToolApprovalRule
+from relay.configs.approval import ApprovalMode
 from relay.configs.llm import BatchLLMConfig, LLMConfig, LLMProvider, RateConfig
 from relay.configs.registry import ConfigRegistry
 from relay.configs.utils import load_prompt_content
@@ -30,8 +30,6 @@ __all__ = [
     "LLMProvider",
     "RateConfig",
     "SubAgentConfig",
-    "ToolApprovalConfig",
-    "ToolApprovalRule",
     "ToolsConfig",
     "load_prompt_content",
 ]

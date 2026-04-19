@@ -52,6 +52,12 @@ DEFAULT_PERMISSION: dict[str, Any] = {
     "external_directory": {
         "*": "ask",
     },
+    # Shell commands and filesystem mutations are the primary side effects
+    # exposed by the built-in toolset.  In the default semi-active flow they
+    # should prompt unless the session mode or agent config explicitly
+    # re-allows them.
+    "bash": "ask",
+    "edit": "ask",
     # Fine-grained read controls: allow most files but ask for sensitive
     # environment-variable files that commonly hold secrets.  Note that
     # "*.env.example" re-allows files that match "*.env.*", so it must

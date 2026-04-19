@@ -294,3 +294,61 @@ async def test_stream_response_supports_namespaced_events() -> None:
         await stream_response(graph, {"messages": []}, thread_id="thread-1")
 
     render_tool_call.assert_called_once_with("ls", {"path": "."}, indent_level=1)
+
+
+# ==============================================================================
+# Phase 5: approval_mode → permission_ruleset translation
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,expected_overlay",
+    [
+        (ApprovalMode.SEMI_ACTIVE, []),
+        (
+            ApprovalMode.ACTIVE,
+            [{"permission": "*", "pattern": "*", "action": "allow"}],
+        ),
+        (
+            ApprovalMode.AGGRESSIVE,
+            [{"permission": "*", "pattern": "*", "action": "allow"}],
+        ),
+    ],
+)
+async def test_stream_response_seeds_permission_ruleset_from_approval_mode(
+    mode: ApprovalMode, expected_overlay: list
+) -> None:
+    """approval_mode should be translated to a permission_ruleset seed on AgentContext."""
+    graph = _FakeGraph([])
+
+    await stream_response(
+        graph,
+        {"messages": []},
+        thread_id="thread-1",
+        approval_mode=mode,
+    )
+
+    assert graph.last_context is not None
+    assert graph.last_context.permission_ruleset == expected_overlay
+
+
+@pytest.mark.asyncio
+async def test_stream_response_pricing_test_still_has_correct_comment() -> None:
+    """The Phase 5 TODO comment has been resolved; the parameter is now active."""
+    graph = _FakeGraph([])
+
+    # approval_mode is now actively translated to a permission_ruleset overlay
+    # (not just accepted for backward compatibility).
+    await stream_response(
+        graph,
+        {"messages": []},
+        thread_id="thread-1",
+        approval_mode=ApprovalMode.ACTIVE,
+    )
+
+    assert graph.last_context is not None
+    # ACTIVE mode seeds an allow-all rule.
+    assert graph.last_context.permission_ruleset == [
+        {"permission": "*", "pattern": "*", "action": "allow"}
+    ]

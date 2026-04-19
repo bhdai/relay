@@ -94,7 +94,7 @@ class InteractivePrompt:
 
         @kb.add(Keys.BackTab)
         def _shift_tab(event):
-            """Cycle approval mode for HITL prompts."""
+            """Cycle permission mode for HITL prompts."""
             self.context.cycle_approval_mode()
             self._session.style = create_prompt_style(self.context.approval_mode)
             event.app.invalidate()
