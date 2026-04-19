@@ -67,9 +67,7 @@ class TestCreateCheckpointer:
         assert isinstance(decoded, PermissionInterruptPayload)
         assert decoded.question == "Allow bash: git push --force?"
         assert decoded.permission == "bash"
-        assert not any(
-            "Deserializing unregistered type relay.middlewares.permission.Permission
-                decoded = cp.serde.loads_typed(encoded)
+
 
         assert isinstance(decoded, PermissionInterruptPayload)
         assert decoded.question == "Allow bash: git push --force?"

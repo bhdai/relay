@@ -38,6 +38,7 @@ _DB_FILENAME = "checkpoints.db"
 # backends deserialize permission interrupts without warnings.
 _ALLOWED_MSGPACK_MODULES: list[tuple[str, str]] = [
     ("relay.middlewares.permission", "PermissionInterruptPayload"),
+    ("relay.middlewares.permission", "Permission")
 ]
 
 
