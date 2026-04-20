@@ -43,13 +43,13 @@ class CommandDispatcher:
     async def dispatch(self, command: str, **kwargs) -> bool:
         """Route a slash command.  Returns True if the REPL should exit.
 
-        Parameters
-        ----------
-        command:
-            The full command string (e.g. ``"/resume"``).
-        **kwargs:
-            Extra context forwarded to individual handlers (e.g.
-            ``prompt_session`` for ``/resume``).
+        Args:
+            command: The full command string (for example, ``"/resume"``).
+            **kwargs: Extra context forwarded to individual handlers, such as
+                ``prompt_session`` for ``/resume``.
+
+        Returns:
+            ``True`` if the REPL should exit, otherwise ``False``.
         """
         parts = command.strip().lower().split()
         if not parts:

@@ -19,13 +19,12 @@ graph level:
 - **ReturnDirectMiddleware** → routing logic that can short-circuit the
   loop to ``END`` before calling the model again.
 
-Usage::
-
+Example:
     from dotenv import load_dotenv; load_dotenv()
     from relay.graph_reference import build_graph
 
     graph = build_graph()
-    # … use exactly like the production graph …
+    # ... use exactly like the production graph ...
 """
 
 import json

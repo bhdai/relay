@@ -1,21 +1,20 @@
 """Checkpointer factory for conversation persistence.
 
-Two backends:
+Two backends are available:
 
 - **SQLite** (default): Persists conversation threads to a local
-  ``.relay/checkpoints.db`` file via ``IndexedAsyncSqliteSaver``.
-  Includes automatic message indexing for fast thread/history queries.
-- **Memory**: In-memory ``MemoryCheckpointer`` — useful for testing
-  or ephemeral sessions.
+    ``.relay/checkpoints.db`` file via ``IndexedAsyncSqliteSaver``.
+    Includes automatic message indexing for fast thread/history queries.
+- **Memory**: In-memory ``MemoryCheckpointer`` for testing or ephemeral
+    sessions.
 
-Both backends implement :class:`relay.checkpointer.base.BaseCheckpointer`
-so the CLI can call ``get_threads()``, ``get_history()``, etc.
+Both backends implement ``relay.checkpointer.base.BaseCheckpointer`` so the
+CLI can call ``get_threads()``, ``get_history()``, and related helpers.
 
-Usage::
-
+Example:
     async with create_checkpointer() as cp:
-        graph = build_graph(checkpointer=cp)
-        ...
+    graph = build_graph(checkpointer=cp)
+    ...
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ _DB_FILENAME = "checkpoints.db"
 # backends deserialize permission interrupts without warnings.
 _ALLOWED_MSGPACK_MODULES: list[tuple[str, str]] = [
     ("relay.middlewares.permission", "PermissionInterruptPayload"),
-    ("relay.middlewares.permission", "Permission")
+    ("relay.middlewares.permission", "Permission"),
 ]
 
 
@@ -87,13 +86,13 @@ async def create_checkpointer(
 ) -> AsyncIterator[BaseCheckpointer]:
     """Create a checkpointer as an async context manager.
 
-    Parameters
-    ----------
-    backend:
-        ``"sqlite"`` (default) or ``"memory"``.
-    working_dir:
-        Base directory for the ``.relay/`` storage folder.
-        Defaults to ``os.getcwd()``.
+    Args:
+        backend: ``"sqlite"`` (default) or ``"memory"``.
+        working_dir: Base directory for the ``.relay/`` storage folder.
+            Defaults to the current working directory.
+
+    Yields:
+        A configured checkpointer instance.
     """
     if backend == "memory":
         yield MemoryCheckpointer(serde=_build_checkpoint_serializer())

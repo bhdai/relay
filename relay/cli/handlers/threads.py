@@ -2,10 +2,10 @@
 
 Keeps an in-memory registry of thread IDs seen in this session as a
 supplement to checkpointer-backed discovery.  The ``/resume`` workflow
-is primarily driven by :meth:`BaseCheckpointer.get_thread_summaries`
+is primarily driven by ``BaseCheckpointer.get_thread_summaries()``
 so that conversations survive across CLI restarts.
 
-When a :class:`relay.checkpointer.base.BaseCheckpointer` is available,
+When a relay checkpointer is available,
 thread listing queries persisted thread summaries (with last-message
 previews and timestamps) and merges in any session-local threads that
 have not yet been checkpointed.

@@ -43,12 +43,25 @@ def create_deep_agent(
     appended to *tools*.  Otherwise, this is equivalent to calling
     ``create_react_agent`` directly.
 
-    Parameters
-    ----------
-    permission_ruleset:
-        Resolved ``Ruleset`` forwarded to ``create_react_agent`` for
-        the ``PermissionMiddleware``.  When ``None``, the default
-        permission ruleset is applied.
+    Args:
+        model: Chat model used by the coordinator.
+        tools: Base tool surface exposed to the coordinator.
+        prompt: System prompt for the coordinator.
+        subagent_configs: Resolved subagent runtime configs to expose through
+            the ``task`` tool.
+        subagent_model_provider: Callable that resolves a model for each
+            subagent config.
+        state_schema: Optional LangGraph state schema.
+        context_schema: Optional LangGraph context schema.
+        checkpointer: Optional checkpoint saver for graph persistence.
+        store: Optional LangGraph store.
+        name: Optional graph name.
+        permission_ruleset: Resolved ``Ruleset`` forwarded to
+            ``create_react_agent`` for the ``PermissionMiddleware``. When
+            ``None``, the default permission ruleset is applied.
+
+    Returns:
+        The compiled coordinator graph.
     """
 
     all_tools = list(tools)

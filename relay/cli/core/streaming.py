@@ -532,19 +532,20 @@ async def stream_response(
 ) -> _TurnStats:
     """Stream the graph response, handling interrupts automatically.
 
-    Parameters
-    ----------
-    graph:
-        Compiled LangGraph graph.
-    input_value:
-        Either a ``dict`` with a ``HumanMessage`` for normal turns, or
-        a ``Command(resume=...)`` when resuming after an interrupt.
-    thread_id:
-        The conversation thread to operate on.
+    Args:
+        graph: Compiled LangGraph graph.
+        input_value: Either a ``dict`` with a ``HumanMessage`` for normal
+            turns, or a ``Command(resume=...)`` when resuming after an
+            interrupt.
+        thread_id: The conversation thread to operate on.
+        working_dir: Working directory forwarded into the agent context.
+        input_cost_per_mtok: Input token price for cost accounting.
+        output_cost_per_mtok: Output token price for cost accounting.
+        approval_mode: Initial permission mode for the turn.
+        on_approval_mode_change: Optional callback fired when the approval
+            mode changes during interrupt handling.
 
-    Returns
-    -------
-    _TurnStats:
+    Returns:
         Token counts and accumulated text for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}

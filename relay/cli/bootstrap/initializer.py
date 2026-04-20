@@ -43,8 +43,7 @@ class Initializer:
     - Checkpointer lifecycle
     - Graph creation with cleanup
 
-    Usage::
-
+    Example:
         init = Initializer()
         async with init.get_graph(backend="sqlite") as graph:
             # stream, invoke, etc.
@@ -163,8 +162,9 @@ class Initializer:
         """Context manager that yields a compiled graph with checkpointer.
 
         The checkpointer and MCP sessions are opened on entry and
-        closed on exit::
+        closed on exit.
 
+        Example:
             async with initializer.get_graph() as graph:
                 result = await graph.ainvoke(...)
         """

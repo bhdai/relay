@@ -3,44 +3,37 @@
 Replaces ``ApprovalMiddleware`` with a ruleset-driven, interrupt-based
 permission system that mirrors Opencode's permission model.
 
-Lifecycle
----------
-1. Each tool call enters ``awrap_tool_call``.
-2. A ``PermissionRequest`` is built from the tool's ``permission_config``
-   metadata (or sensible defaults when no config is present).
-3. The request is evaluated by the session-scoped ``PermissionService``
-   against the agent-config ruleset + accumulated "always" rules.
-4. ``Allowed``   → execute the tool immediately.
-   ``Denied``    → return an error ``ToolMessage`` with ``return_direct``.
-   ``NeedsAsk``  → LangGraph ``interrupt(payload)``; on resume the
-                   user's ``Reply`` is fed back to the service.
+Overview:
+    1. Each tool call enters ``awrap_tool_call``.
+    2. A ``PermissionRequest`` is built from the tool's
+       ``permission_config`` metadata, or from sensible defaults.
+    3. The request is evaluated by the session-scoped ``PermissionService``
+       against the agent-config ruleset plus accumulated "always" rules.
+    4. ``Allowed`` executes the tool immediately.
+    5. ``Denied`` returns an error ``ToolMessage`` with ``return_direct``.
+    6. ``NeedsAsk`` raises a LangGraph ``interrupt(payload)`` and feeds the
+       user's ``Reply`` back into the service on resume.
 
-Tool metadata
--------------
-Each tool may expose a ``"permission_config"`` key in its ``.metadata``
-dict.  The recognised fields are:
+Tool Metadata:
+    Each tool may expose a ``"permission_config"`` key in ``.metadata``.
 
-``"permission"``
-    Permission key string, e.g. ``"bash"``, ``"edit"``, ``"read"``.
-    Falls back to the tool's own name when absent.
-
-``"patterns_fn"``
-    ``callable(args: dict) → list[str]``: concrete values being
-    evaluated (e.g. the command string or file path).  Defaults to
-    ``["*"]``.
-
-``"always_fn"``
-    ``callable(args: dict) → list[str]``: coarser patterns persisted
-    when the user replies ``"always"``.  Defaults to ``["*"]``.
-
-``"metadata_fn"``
-    ``callable(args: dict) → dict``: display context for the approval
-    prompt (e.g. ``{"command": "git push --force"}``).  Defaults to
-    ``{}``.
-
-``"is_catalog_proxy"``
-    When ``True``, the middleware looks through the proxy tool (e.g.
-    ``run_tool``) to the underlying tool's ``permission_config``.
+    ``"permission"``:
+        Permission key string, for example ``"bash"``, ``"edit"``, or
+        ``"read"``. Falls back to the tool's own name when absent.
+    ``"patterns_fn"``:
+        ``callable(args: dict) -> list[str]`` returning the concrete values
+        being evaluated, such as a command string or file path. Defaults to
+        ``["*"]``.
+    ``"always_fn"``:
+        ``callable(args: dict) -> list[str]`` returning the coarser patterns
+        persisted when the user replies ``"always"``. Defaults to ``["*"]``.
+    ``"metadata_fn"``:
+        ``callable(args: dict) -> dict`` returning display context for the
+        approval prompt, such as ``{"command": "git push --force"}``.
+        Defaults to ``{}``.
+    ``"is_catalog_proxy"``:
+        When ``True``, the middleware looks through the proxy tool, such as
+        ``run_tool``, to the underlying tool's ``permission_config``.
 """
 
 from __future__ import annotations

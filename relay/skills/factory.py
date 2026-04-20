@@ -1,19 +1,18 @@
 """Skill model and factory.
 
 Skills are specialised knowledge packages stored as ``SKILL.md`` files
-with YAML frontmatter.  The ``SkillFactory`` scans a directory tree
+with YAML frontmatter. The ``SkillFactory`` scans a directory tree
 structured as ``<category>/<skill-name>/SKILL.md`` and loads each skill
 into an in-memory model.
 
-Example directory layout::
-
-    .relay/skills/
-      coding/
-        python-best-practices/
-          SKILL.md
-      general/
-        code-review/
-          SKILL.md
+Example:
+        .relay/skills/
+            coding/
+                python-best-practices/
+                    SKILL.md
+            general/
+                code-review/
+                    SKILL.md
 """
 
 from __future__ import annotations

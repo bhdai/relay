@@ -72,8 +72,7 @@ def _collect_files(
 def _render_tree(file_paths: list[str]) -> str:
     """Build a tree-style string from a sorted list of relative paths.
 
-    Example output::
-
+    Example:
         src/
           foo.py
           bar/

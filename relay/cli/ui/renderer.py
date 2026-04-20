@@ -247,8 +247,7 @@ def render_assistant_message(
 def render_tool_call(name: str, args: dict, *, indent_level: int = 0) -> None:
     """Show a tool invocation notification.
 
-    Format::
-
+    Example:
         ⚙ tool_name
           key: value (truncated)
     """

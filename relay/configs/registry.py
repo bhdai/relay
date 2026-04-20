@@ -54,12 +54,10 @@ CONFIG_SUBAGENTS_DIR = Path(CONFIG_DIR_NAME) / "subagents"
 class ConfigRegistry:
     """Load, cache, and resolve agent and subagent configurations.
 
-    Parameters
-    ----------
-    working_dir:
-        Project root.  The registry looks for a ``.relay/`` directory
-        here.  If one does not exist, ``ensure_config_dir`` copies the
-        packaged defaults.
+    Args:
+        working_dir: Project root. The registry looks for a ``.relay/``
+            directory here. If one does not exist, ``ensure_config_dir``
+            copies the packaged defaults.
     """
 
     def __init__(self, working_dir: Path) -> None:
@@ -233,7 +231,8 @@ class ConfigRegistry:
     async def get_agent(self, name: str | None = None) -> AgentConfig:
         """Return agent by *name*, or the default agent.
 
-        Raises ``ValueError`` if not found.
+        Raises:
+            ValueError: If the requested agent cannot be found.
         """
         agents = await self.load_agents()
         agent = agents.get_agent(name)
@@ -254,7 +253,9 @@ class ConfigRegistry:
     ) -> MCPConfig:
         """Load MCP configuration from ``.relay/mcp.json`` (cached).
 
-        Returns an empty ``MCPConfig`` if the file does not exist.
+        Returns:
+            The loaded MCP config. Returns an empty ``MCPConfig`` if the file
+            does not exist.
         """
         if self._mcp is not None and not force_reload:
             return self._mcp
