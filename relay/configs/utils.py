@@ -39,8 +39,9 @@ async def load_yaml_file(file_path: Path, key: str) -> list[dict]:
     """Load items from a YAML file under the given *key*.
 
     Expects the file to contain a mapping with *key* pointing to a list
-    of mappings, e.g.::
+    of mappings.
 
+    Example:
         agents:
           - name: general
             ...
@@ -64,18 +65,13 @@ async def load_prompt_content(
 ) -> str:
     """Load and concatenate prompt content from file path(s).
 
-    Parameters
-    ----------
-    base_path:
-        Directory that prompt file paths are resolved relative to.
-    prompt:
-        A single file path, a list of file paths, or literal prompt
-        text.  Paths that resolve to existing files are read; anything
-        else is kept as literal text.
+    Args:
+        base_path: Directory that prompt file paths are resolved relative to.
+        prompt: A single file path, a list of file paths, or literal prompt
+            text. Paths that resolve to existing files are read; anything
+            else is kept as literal text.
 
-    Returns
-    -------
-    str
+    Returns:
         Concatenated prompt content separated by double newlines.
     """
     if not prompt:

@@ -39,17 +39,20 @@ async def glob_files(
     Automatically ignores common noisy directories (e.g. ``.venv``,
     ``node_modules``, ``__pycache__``).
 
-    Typical patterns::
-
-        "*.py"          – all Python files in dir_path
-        "**/*.ts"       – all TypeScript files at any depth
-        "tests/**/test_*.py"  – test modules under tests/
-        "src/**/index.*"      – entry-point files under src/
+    Examples:
+        "*.py": all Python files in ``dir_path``.
+        "**/*.ts": all TypeScript files at any depth.
+        "tests/**/test_*.py": test modules under ``tests/``.
+        "src/**/index.*": entry-point files under ``src/``.
 
     Args:
         pattern: Glob pattern to match against relative file paths.
         dir_path: Root directory to search (default: current directory).
         max_results: Maximum number of matches to return (default 100).
+
+    Returns:
+        A newline-delimited match list, or a message explaining that no files
+        matched.
     """
     root = resolve(dir_path)
     if not root.is_dir():

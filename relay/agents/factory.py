@@ -240,9 +240,10 @@ class AgentFactory:
         ``impl:file_system:read_file``, ``mcp:server:tool``).
         Negative patterns start with ``!``.
 
-        Returns ``(impl_patterns, mcp_patterns, internal_patterns)``
-        where each list contains two-part ``module:name`` patterns (or
-        ``None``).
+        Returns:
+            A tuple of ``(impl_patterns, mcp_patterns, internal_patterns)``
+            where each list contains two-part ``module:name`` patterns, or
+            ``None`` when that category was not present.
         """
         if not tool_refs:
             return None, None, None
@@ -495,18 +496,15 @@ class AgentFactory:
     ) -> CompiledStateGraph:
         """Build the coordinator + subagent graph.
 
-        Parameters
-        ----------
-        checkpointer:
-            Optional checkpoint saver for conversation persistence.
-            Pass ``None`` for LangGraph Studio or stateless use.
-        agent_name:
-            Name of the agent config to use (config-driven mode only).
-            ``None`` uses the default agent.
+        Args:
+            checkpointer: Optional checkpoint saver for conversation
+                persistence. Pass ``None`` for LangGraph Studio or stateless
+                use.
+            agent_name: Name of the agent config to use (config-driven mode
+                only). ``None`` uses the default agent.
 
-        Returns
-        -------
-        CompiledStateGraph
+        Returns:
+            The compiled coordinator graph.
         """
         llm_config = self._build_default_llm_config(model_name=self._model_name)
         model = self._model_from_config(llm_config)
@@ -539,18 +537,22 @@ class AgentFactory:
         ``ConfigRegistry``.  Falls back to ``create()`` if no
         registry is available.
 
-        Parameters
-        ----------
-        mcp_client:
-            Optional MCP client whose tools are merged into the
-            ``mcp:`` category for pattern matching.
-        skills_dir:
-            Optional directory containing skill packages.  When
-            provided and a ``SkillFactory`` is available, skills are
-            loaded and appended to the system prompt.
+        Args:
+            checkpointer: Optional checkpoint saver for conversation
+                persistence.
+            agent_name: Optional agent config name. ``None`` selects the
+                default agent.
+            mcp_client: Optional MCP client whose tools are merged into the
+                ``mcp:`` category for pattern matching.
+            skills_dir: Optional directory containing skill packages. When
+                provided and a ``SkillFactory`` is available, skills are loaded
+                and appended to the system prompt.
 
         This is ``async`` because config loading and MCP/skill loading
         read files.
+
+        Returns:
+            The compiled coordinator graph assembled from YAML configs.
         """
         if self._registry is None:
             return self.create(checkpointer=checkpointer)

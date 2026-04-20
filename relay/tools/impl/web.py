@@ -1,7 +1,7 @@
 """Web content extraction tool.
 
-Uses `trafilatura <https://trafilatura.readthedocs.io/>`_ to download a
-webpage and extract its main content as Markdown.
+Uses ``trafilatura`` to download a webpage and extract its main content as
+Markdown.
 """
 
 from urllib.parse import urlparse

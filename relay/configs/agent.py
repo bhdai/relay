@@ -21,11 +21,12 @@ from pydantic import BaseModel, Field
 class ToolsConfig(BaseModel):
     """Declarative tool surface definition.
 
-    ``patterns`` uses a colon-separated namespace syntax::
+    ``patterns`` uses a colon-separated namespace syntax.
 
-        impl:web:*          — all web tools
-        impl:file_system:read_file  — single tool
-        internal:*:*        — all internal tools
+    Example:
+        impl:web:*                    - all web tools
+        impl:file_system:read_file    - one specific tool
+        internal:*:*                  - all internal tools
 
     Pattern matching is handled at build time by the tool factory
     (Phase 5).  For now the factory interprets patterns as hints for

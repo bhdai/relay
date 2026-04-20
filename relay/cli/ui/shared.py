@@ -67,16 +67,15 @@ def create_bottom_toolbar(
 ) -> HTML:
     """Build the bottom toolbar showing version and current thread.
 
-    Parameters
-    ----------
-    version:
-        Relay version string (e.g. ``"0.1.0"``).
-    thread_id:
-        Active conversation thread ID (truncated for display).
-    agent_name:
-        Active agent profile, if one was selected.
-    model_name:
-        Active model override, if one was selected.
+    Args:
+        version: Relay version string, for example ``"0.1.0"``.
+        thread_id: Active conversation thread ID, truncated for display.
+        agent_name: Active agent profile, if one was selected.
+        model_name: Active model override, if one was selected.
+        approval_mode: Active permission mode, if one is set.
+
+    Returns:
+        Prompt-toolkit HTML markup for the toolbar.
     """
     short_thread = thread_id[:8]
     segments = [f"relay v{version}"]

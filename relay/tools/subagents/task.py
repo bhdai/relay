@@ -79,19 +79,17 @@ def think(reflection: str) -> str:
     next steps systematically.  This creates a deliberate pause in the
     workflow for quality decision-making.
 
-    When to use:
+    Use it after receiving search results, before deciding next steps,
+    when assessing gaps, and before concluding. A strong reflection covers
+    current findings, remaining gaps, evidence quality, and the next
+    strategic decision.
 
-    - After receiving search results: What key information did I find?
-    - Before deciding next steps: Do I have enough to answer comprehensively?
-    - When assessing gaps: What specific information am I still missing?
-    - Before concluding: Can I provide a complete answer now?
+    Args:
+        reflection: Concise analysis of the current state of the delegated
+            task.
 
-    Reflection should address:
-
-    1. Analysis of current findings — what concrete information have I gathered?
-    2. Gap assessment — what crucial information is still missing?
-    3. Quality evaluation — do I have sufficient evidence/examples?
-    4. Strategic decision — should I continue searching or provide my answer?
+    Returns:
+        A confirmation string that records the reflection.
     """
     return f"Reflection recorded: {reflection}"
 
@@ -185,15 +183,18 @@ def create_task_tool(
     ``create_react_agent``.  The ``think`` tool is appended to every
     subagent's tool surface automatically.
 
-    Parameters
-    ----------
-    coordinator_ruleset:
-        The resolved ``Ruleset`` from the coordinator agent.  Each
-        subagent inherits this as a base and then its own
-        ``SubAgentRuntime.permission_ruleset`` is merged on top
-        (last-match-wins), so subagent-specific rules take precedence.
-        When ``None``, subagents are compiled with only their own
-        ruleset (no inheritance).
+    Args:
+        subagent_configs: Resolved subagent runtime configs available for
+            delegation.
+        model_provider: Callable that resolves the chat model for a subagent.
+        coordinator_ruleset: The resolved ``Ruleset`` from the coordinator
+            agent. Each subagent inherits this as a base and then its own
+            ``SubAgentRuntime.permission_ruleset`` is merged on top,
+            last-match-wins. When ``None``, subagents are compiled with only
+            their own ruleset.
+
+    Returns:
+        A LangChain tool that delegates work to named subagents.
     """
 
     agents: dict[str, CompiledStateGraph] = {}

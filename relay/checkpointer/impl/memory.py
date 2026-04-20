@@ -1,7 +1,8 @@
 """In-memory checkpointer with extended query methods.
 
 Wraps LangGraph's ``MemorySaver`` with the additional thread discovery,
-history, and replay methods defined by :class:`relay.checkpointer.base.BaseCheckpointer`.
+history, and replay methods defined by
+``relay.checkpointer.base.BaseCheckpointer``.
 
 Useful for testing and ephemeral sessions where persistence is not required.
 """

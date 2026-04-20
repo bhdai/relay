@@ -26,6 +26,11 @@ class ThreadSummary:
 
     Populated by :meth:`BaseCheckpointer.get_thread_summaries` from
     checkpoint data so the CLI can display meaningful previews.
+
+    Attributes:
+        thread_id: Unique thread identifier.
+        last_message: Preview of the last human-visible message.
+        timestamp: Checkpoint timestamp string, if available.
     """
 
     thread_id: str
@@ -85,9 +90,7 @@ class BaseCheckpointer(_BaseCheckpointSaver):
     ) -> tuple[list[HumanMessageEntry], list[BaseMessage]]:
         """Return human messages with replay metadata.
 
-        Returns
-        -------
-        tuple
-            ``(human_messages, all_messages)``
+        Returns:
+            A tuple of ``(human_messages, all_messages)``.
         """
         raise NotImplementedError

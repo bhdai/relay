@@ -310,14 +310,13 @@ class PermissionService:
     def to_persistence_dict(self) -> dict[str, Any]:
         """Serialise accumulated approvals to a JSON-compatible dict.
 
-        The format is::
-
-            {
-              "approved": [
-                {"permission": "bash", "pattern": "git push *", "action": "allow"},
-                ...
-              ]
-            }
+                Example:
+                        {
+                            "approved": [
+                                {"permission": "bash", "pattern": "git push *", "action": "allow"},
+                                ...
+                            ]
+                        }
 
         Returns:
             A ``dict`` suitable for ``json.dump``.

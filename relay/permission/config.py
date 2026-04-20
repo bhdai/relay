@@ -1,31 +1,26 @@
-"""Permission config normalization — YAML dict → Ruleset.
+"""Permission config normalization — YAML dict -> Ruleset.
 
-This module converts the human-readable YAML permission configuration
-(stored in agent YAML files or code defaults) into the flat ``Ruleset``
+This module converts the human-readable YAML permission configuration,
+stored in agent YAML files or code defaults, into the flat ``Ruleset``
 format that ``evaluate()`` and ``PermissionService`` consume.
 
-Config format (YAML)::
+Example:
+        permission:
+            bash: allow
 
-    permission:
-      # Shorthand: a single action for all patterns under this key.
-      bash: allow
+            read:
+                "*.env": ask
+                "*.env.*": ask
+                "*.env.example": allow
+                "*": allow
 
-      # Pattern map: different actions for specific patterns.
-      read:
-        "*.env": ask
-        "*.env.*": ask
-        "*.env.example": allow
-        "*": allow
-
-Rules preserve insertion order, which matters: ``evaluate()`` uses
-last-match-wins semantics, so rules listed later override earlier ones.
-The pattern map form therefore lets you write coarse rules first and
-fine-grained overrides last.
+Rules preserve insertion order, which matters because ``evaluate()`` uses
+last-match-wins semantics. The pattern-map form therefore lets you write
+coarse rules first and fine-grained overrides last.
 
 The ``migrate_from_approval_config`` helper translates the legacy
 ``ToolApprovalConfig`` format (``.relay/config.approval.json``) into a
-``Ruleset``.  It is used on first startup when no ``.relay/permission.json``
-exists yet.
+``Ruleset`` for first-run migration.
 """
 
 from __future__ import annotations
@@ -131,22 +126,22 @@ def from_config(permission: dict[str, Any]) -> Ruleset:
 
     Accepts two forms for each permission key:
 
-    **Shorthand** — a single action string that applies to all patterns
-    for that key::
+    **Shorthand** is a single action string that applies to all patterns for
+    that key.
 
-        "bash": "allow"   # → Rule(permission="bash", pattern="*", action="allow")
-        "*": "allow"      # → Rule(permission="*",    pattern="*", action="allow")
+    Example:
+        "bash": "allow"
+        "*": "allow"
 
-    **Pattern map** — a dict mapping concrete patterns to actions.
-    Insertion order is preserved (Python 3.7+) and is significant because
-    ``evaluate()`` uses last-match-wins::
+    **Pattern map** is a dict mapping concrete patterns to actions. Insertion
+    order is preserved (Python 3.7+) and is significant because
+    ``evaluate()`` uses last-match-wins.
 
+    Example:
         "read": {
             "*.env": "ask",
-            "*":     "allow",
+            "*": "allow",
         }
-        # → [Rule(permission="read", pattern="*.env", action="ask"),
-        #    Rule(permission="read", pattern="*",     action="allow")]
 
     Path patterns in the pattern-map form are expanded: ``~`` is replaced
     with the user's home directory and ``$HOME`` / ``${HOME}`` are resolved

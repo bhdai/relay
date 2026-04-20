@@ -35,7 +35,10 @@ def build_graph_with_checkpointer(
 ):
     """Construct Relay's graph with an explicit checkpointer.
 
-    .. deprecated::
+    Args:
+        checkpointer: Checkpoint saver to attach to the graph.
+
+    Deprecated:
         Use ``AgentFactory.create(checkpointer=...)`` or
         ``Initializer.get_graph(...)`` instead.
     """

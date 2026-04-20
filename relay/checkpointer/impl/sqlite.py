@@ -1,8 +1,8 @@
 """Async SQLite checkpointer with message indexing.
 
 Wraps ``AsyncSqliteSaver`` with the extended query methods from
-:class:`relay.checkpointer.base.BaseCheckpointer` and adds an automatic
-message index table for fast thread/history queries.
+``relay.checkpointer.base.BaseCheckpointer`` and adds an automatic message
+index table for fast thread and history queries.
 """
 
 from __future__ import annotations
@@ -54,8 +54,14 @@ class IndexedAsyncSqliteSaver(AsyncSqliteSaver, BaseCheckpointer):
     ) -> AsyncIterator[IndexedAsyncSqliteSaver]:
         """Create and set up an ``IndexedAsyncSqliteSaver``.
 
-        Usage::
+        Args:
+            connection_string: SQLite database path.
+            serde: Optional checkpoint serializer.
 
+        Yields:
+            A ready-to-use SQLite saver.
+
+        Example:
             async with IndexedAsyncSqliteSaver.create(connection_string=path) as cp:
                 ...
         """

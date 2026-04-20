@@ -25,13 +25,12 @@ def _command_prefix(command: str) -> str:
     This covers the common cases (``git push``, ``npm install``,
     ``cargo build``) without adding a tree-sitter dependency.
 
-    Examples::
-
-        "git push --force origin main"  → "git push"
-        "npm install foo"               → "npm install"
-        "ls -la /tmp"                   → "ls"
-        "rm -rf /"                      → "rm"
-        ""                              → "*"
+    Examples:
+        "git push --force origin main" -> "git push"
+        "npm install foo" -> "npm install"
+        "ls -la /tmp" -> "ls"
+        "rm -rf /" -> "rm"
+        "" -> "*"
 
     Args:
         command: Raw shell command string.

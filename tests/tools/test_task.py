@@ -1,12 +1,8 @@
-"""Tests for Phase 4: subagent permission inheritance in create_task_tool.
+"""Tests for Phase 4 subagent permission inheritance in ``create_task_tool``.
 
-Covers:
-- SubAgentRuntime.permission_ruleset field (default and custom).
-- create_task_tool merges coordinator_ruleset + SubAgentRuntime.permission_ruleset
-  so that subagent-specific rules win (last-match-wins).
-- Explorer-style subagent (deny-all + allow read) overrides coordinator allow.
-- Worker-style subagent (empty override) fully inherits coordinator permissions.
-- create_deep_agent forwards its permission_ruleset into create_task_tool.
+These cases cover the default and custom ``SubAgentRuntime.permission_ruleset``
+field, coordinator and subagent ruleset merging, read-only explorer-style
+overrides, worker inheritance, and forwarding from ``create_deep_agent``.
 """
 
 from __future__ import annotations
@@ -170,8 +166,7 @@ class TestRulesetMergeSemantics:
 
 
 class TestCreateTaskToolPassesRuleset:
-    """create_task_tool merges coordinator_ruleset + config.permission_ruleset
-    and forwards the result to create_react_agent as permission_ruleset."""
+    """Verify the child ruleset is forwarded into ``create_react_agent``."""
 
     def _run_task_tool_with_captured_ruleset(
         self,
@@ -179,8 +174,17 @@ class TestCreateTaskToolPassesRuleset:
         subagent_permission: Ruleset,
         coordinator_ruleset: Ruleset | None,
     ) -> Ruleset | None:
-        """Build a task tool, trigger lazy subagent compilation, and return
-        the permission_ruleset that was passed to create_react_agent."""
+        """Build a task tool and capture the forwarded permission ruleset.
+
+        Args:
+            subagent_name: Name of the delegated subagent.
+            subagent_permission: Ruleset applied directly to the subagent.
+            coordinator_ruleset: Inherited coordinator ruleset, if any.
+
+        Returns:
+            The ruleset that ``create_react_agent`` received for the child
+            graph.
+        """
         config = _make_subagent_config(subagent_name, subagent_permission)
         captured: list[Ruleset | None] = []
 

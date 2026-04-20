@@ -1,10 +1,10 @@
 """Virtual file-system tools for the agent's in-memory scratchpad.
 
 These tools let the agent persist notes, plans, and other working text
-inside ``state["files"]`` — a ``dict[str, str]`` managed by the
-``file_reducer`` in :mod:`relay.state`.
+inside ``state["files"]``, a ``dict[str, str]`` managed by the
+``file_reducer`` in relay state.
 
-Each mutating tool returns a ``Command(update=…)`` so LangGraph merges
+Each mutating tool returns a ``Command(update=...)`` so LangGraph merges
 the change through the reducer rather than clobbering the whole dict.
 """
 

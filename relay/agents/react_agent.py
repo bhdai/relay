@@ -62,12 +62,22 @@ def create_react_agent(
     ``CompressToolOutputMiddleware`` post-processes tool results to keep
     token usage bounded.
 
-    Parameters
-    ----------
-    permission_ruleset:
-        Resolved ``Ruleset`` for this agent.  When ``None``, the default
-        permission ruleset (``DEFAULT_PERMISSION``) is used.  Provide a
-        pre-merged ruleset from the factory for config-driven agents.
+    Args:
+        model: Chat model used by the agent.
+        tools: Tools exposed to the agent.
+        prompt: Fully assembled system prompt.
+        state_schema: Optional LangGraph state schema.
+        context_schema: Optional LangGraph context schema.
+        checkpointer: Optional checkpoint saver.
+        store: Optional LangGraph store.
+        name: Optional graph name.
+        permission_ruleset: Resolved ``Ruleset`` for this agent. When
+            ``None``, the default permission ruleset (``DEFAULT_PERMISSION``)
+            is used. Provide a pre-merged ruleset from the factory for
+            config-driven agents.
+
+    Returns:
+        The compiled ReAct agent graph.
     """
 
     # Resolve the effective ruleset.  The factory is responsible for merging
